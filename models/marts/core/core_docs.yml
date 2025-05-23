@@ -1,0 +1,23 @@
+version: 2
+
+models:
+  - name: fct_daily_trading
+    description: Core fact table for daily trading metrics
+    columns:
+      - name: symbol
+        description: Stock ticker symbol
+        tests:
+          - not_null
+          - unique:
+              combination_of: ['symbol', 'trading_date']
+      - name: trading_date
+        description: Date of trading activity
+        tests:
+          - not_null
+      - name: daily_return_pct
+        description: Percentage return for the day
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: -100
+              max_value: 100 
