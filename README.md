@@ -11,6 +11,7 @@ A robust data pipeline for collecting and processing financial market data using
 - Market sentiment analysis
 - Data transformation and storage in PostgreSQL
 - Comprehensive error handling and logging
+- Efficient background service that respects trading hours
 
 ## Prerequisites
 
@@ -73,22 +74,60 @@ bin/zookeeper-server-start.sh config/zookeeper.properties
 bin/kafka-server-start.sh config/server.properties
 ```
 
-2. Start the crawler:
+2. Start the crawler service:
 ```bash
 python examples/run_crawler.py
 ```
 
-The crawler will:
-- Run during market hours (9:30 AM - 4:00 PM ET)
-- Make 25 evenly-spaced requests per day
+The crawler service will:
+- Run as a background process
+- Automatically start/stop based on market hours (9:30 AM - 4:00 PM ET)
+- Make 25 evenly-spaced requests during trading hours
 - Publish data to Kafka topics
 - Log activities to `crawler.log`
+- Use minimal resources when market is closed
+- Handle graceful shutdown on system signals
 
 ### Stopping the Crawler
 
 The crawler can be stopped using:
 - `Ctrl+C` in the terminal
 - The process will gracefully shut down and flush any pending Kafka messages
+- All resources will be properly cleaned up
+
+### Running as a System Service
+
+To run the crawler as a system service:
+
+1. Create a systemd service file:
+```bash
+sudo nano /etc/systemd/system/financial-crawler.service
+```
+
+2. Add the following configuration:
+```ini
+[Unit]
+Description=Financial Data Crawler Service
+After=network.target kafka.service
+
+[Service]
+Type=simple
+User=your_user
+WorkingDirectory=/path/to/cursor-data-eng
+Environment=PYTHONPATH=/path/to/cursor-data-eng
+ExecStart=/path/to/cursor-data-eng/.venv/bin/python examples/run_crawler.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+3. Enable and start the service:
+```bash
+sudo systemctl enable financial-crawler
+sudo systemctl start financial-crawler
+```
 
 ### Monitoring
 
@@ -147,6 +186,7 @@ WHERE trading_date = CURRENT_DATE;
 │   ├── intermediate/  # Technical indicators
 │   └── marts/         # Business-ready models
 ├── src/
+│   ├── crawler_service.py # Background crawler service
 │   ├── extract.py     # Data extraction
 │   ├── kafka_config.py # Kafka configuration
 │   └── utils.py       # Utility functions
@@ -162,6 +202,8 @@ WHERE trading_date = CURRENT_DATE;
 - Failed API requests are retried with exponential backoff
 - Kafka message delivery failures are logged
 - Database connection issues trigger appropriate error handling
+- Service automatically recovers from crashes
+- Graceful shutdown on system signals
 
 ## Contributing
 

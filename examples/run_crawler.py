@@ -1,8 +1,9 @@
 import os
 from dotenv import load_dotenv
-from src.extract import get_extractor
+from src.crawler_service import CrawlerService
 from src.kafka_config import KafkaConfig
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -25,20 +26,20 @@ def main():
     kafka_config = KafkaConfig(bootstrap_servers=kafka_bootstrap_servers)
     
     try:
-        # Initialize extractor
-        extractor = get_extractor(
-            source='alphavantage',
-            api_key=api_key,
-            kafka_config=kafka_config
-        )
+        # Initialize and start crawler service
+        crawler = CrawlerService(api_key=api_key, kafka_config=kafka_config)
+        crawler.start()
         
-        # Run extraction
-        logger.info("Starting data extraction...")
-        data = extractor.extract()
-        logger.info("Data extraction completed successfully")
-        
+        # Keep the main thread alive
+        while True:
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        logger.info("Received keyboard interrupt. Shutting down...")
+        crawler.stop()
     except Exception as e:
-        logger.error(f"Error during data extraction: {str(e)}")
+        logger.error(f"Error during crawler execution: {str(e)}")
+        crawler.stop()
         raise
 
 if __name__ == "__main__":
