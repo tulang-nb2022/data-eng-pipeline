@@ -40,8 +40,7 @@ class AlphaVantageExtractor(DataExtractor):
         self.symbols = ['NVDA', 'AAPL', 'MSFT', 'AVGO','CRM','PLTR']  # Example symbols
         self.kafka_config = kafka_config or KafkaConfig()
         
-        # Initialize rate limiter and trading schedule
-        self.rate_limiter = RateLimiter()
+        # Initialize trading schedule
         self.trading_schedule = TradingSchedule()
     
     def _make_request(self, function: str, params: Dict[str, str]) -> Dict:
