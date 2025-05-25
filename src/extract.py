@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
 from .kafka_config import KafkaConfig
-from .utils import RateLimiter, ErrorHandler, TradingSchedule
+from .utils import ErrorHandler, TradingSchedule
 import logging
 import time
 
