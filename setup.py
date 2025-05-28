@@ -12,7 +12,8 @@ setup(
         "numpy",
         "psycopg2-binary",
         "dbt-core",
-        "dbt-postgres"
+        "dbt-postgres",
+        "confluent-kafka"
     ],
     python_requires=">=3.8",
 ) 

@@ -135,6 +135,10 @@ sudo systemctl start financial-crawler
 ```bash
 tail -f crawler.log
 ```
+or
+```bash
+systemctl status financial-crawler.service
+```
 
 2. Monitor Kafka topics:
 ```bash
