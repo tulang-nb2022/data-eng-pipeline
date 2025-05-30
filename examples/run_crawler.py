@@ -37,6 +37,7 @@ def main():
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt. Shutting down...")
         crawler.stop()
+        return
     except Exception as e:
         logger.error(f"Error during crawler execution: {str(e)}")
         crawler.stop()
