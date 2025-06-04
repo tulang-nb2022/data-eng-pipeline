@@ -2,13 +2,14 @@ import os
 import requests
 import json
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, Any, List
 from abc import ABC, abstractmethod
 from .kafka_config import KafkaConfig
 from .utils import ErrorHandler, TradingSchedule
 import logging
 import time
+from collections import deque
 
 # Configure logging
 logging.basicConfig(
@@ -20,6 +21,30 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+class RateLimiter:
+    """Rate limiter for API requests"""
+    
+    def __init__(self, requests_per_day: int = 25):
+        self.requests_per_day = requests_per_day
+        self.daily_requests = deque(maxlen=requests_per_day)
+    
+    def can_make_request(self) -> bool:
+        """Check if a new request can be made without exceeding rate limits"""
+        now = datetime.now()
+        while self.daily_requests and (now - self.daily_requests[0]) > timedelta(days=1):
+            self.daily_requests.popleft()
+        
+        # Check if we've hit any limits
+        if len(self.daily_requests) >= self.requests_per_day:
+            return False
+        
+        return True
+    
+    def add_request(self):
+        """Record a new request"""
+        now = datetime.now()
+        self.daily_requests.append(now)
 
 class DataExtractor(ABC):
     @abstractmethod
@@ -40,8 +65,9 @@ class AlphaVantageExtractor(DataExtractor):
         self.symbols = ['NVDA', 'AAPL', 'MSFT', 'AVGO','CRM','PLTR']  # Example symbols
         self.kafka_config = kafka_config or KafkaConfig()
         
-        # Initialize trading schedule
+        # Initialize trading schedule and rate limiter
         self.trading_schedule = TradingSchedule()
+        self.rate_limiter = RateLimiter()
     
     def _make_request(self, function: str, params: Dict[str, str]) -> Dict:
         """Make API request with trading-aware rate limiting"""
