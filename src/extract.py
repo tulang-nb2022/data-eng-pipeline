@@ -105,13 +105,17 @@ class AlphaVantageExtractor(DataExtractor):
     def _publish_to_kafka(self, topic: str, symbol: str, data: Dict[str, Any]):
         """Publish data to Kafka"""
         try:
-            # Convert DataFrame to dict if present in data
-            serializable_data = {}
-            for key, value in data.items():
-                if isinstance(value, pd.DataFrame):
-                    serializable_data[key] = value.to_dict(orient='records')
-                else:
-                    serializable_data[key] = value
+            # Handle both dictionary and list inputs
+            if isinstance(data, list):
+                serializable_data = data
+            else:
+                # Convert DataFrame to dict if present in data
+                serializable_data = {}
+                for key, value in data.items():
+                    if isinstance(value, pd.DataFrame):
+                        serializable_data[key] = value.to_dict(orient='records')
+                    else:
+                        serializable_data[key] = value
 
             message = {
                 'timestamp': datetime.now().isoformat(),
