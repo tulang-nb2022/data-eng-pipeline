@@ -1,24 +1,43 @@
-# Financial Data Crawler
+# Weather Data Crawler
 
-A robust data pipeline for collecting and processing financial market data using Alpha Vantage API and Kafka.
+A robust data pipeline for collecting and processing weather data using NOAA API, Kafka, and AWS services. This project has evolved from a financial data crawler to focus on weather data analysis and climate monitoring.
+
+> **Note**: The financial data crawler functionality is now deprecated. This version focuses on weather data collection and analysis.
 
 ## Features
 
-- Real-time market data collection during trading hours
-- Rate-limited API requests to comply with Alpha Vantage limits
+- Historical and real-time weather data collection
+- Rate-limited API requests to comply with NOAA API limits
 - Kafka integration for data streaming
-- Technical indicators calculation (RSI, MACD)
-- Market sentiment analysis
-- Data transformation and storage in PostgreSQL
+- AWS S3 storage with Parquet format
+- Amazon Athena for interactive querying
+- Great Expectations for data validation
+- Apache Airflow for workflow orchestration
+- Advanced weather metrics calculation:
+  - Heat Index and Wind Chill
+  - Dew Point and Precipitation Intensity
+  - Standardized Precipitation Index (SPI)
+  - Temperature-Humidity Index (THI)
+- Weather pattern detection:
+  - Heat waves and cold snaps
+  - Temperature and precipitation anomalies
+  - Climate indices
+- Real-time data quality monitoring
 - Comprehensive error handling and logging
-- Efficient background service that respects trading hours
+- Efficient background service with configurable collection intervals
 
 ## Prerequisites
 
 - Python 3.8+
 - PostgreSQL 12+
 - Apache Kafka
-- Alpha Vantage API key
+- NOAA API token
+- AWS Account with:
+  - S3 bucket
+  - Athena database
+  - IAM roles and permissions
+- Apache Airflow
+- Great Expectations
 
 ## Installation
 
@@ -44,21 +63,40 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 Edit `.env` with your configuration:
-- Add your Alpha Vantage API key
+- Add your NOAA API token
+- Configure AWS credentials
+- Set Kafka bootstrap servers
 - Configure database credentials
-- Set Kafka bootstrap servers if different from default
 
-5. Set up the database:
+5. Set up AWS resources:
 ```bash
-# Create database and schema
-createdb financial_analytics
-psql financial_analytics -c "CREATE SCHEMA IF NOT EXISTS public;"
+# Create S3 bucket
+aws s3 mb s3://your-weather-data-bucket
+
+# Create Athena database
+aws athena start-query-execution \
+    --query-string "CREATE DATABASE IF NOT EXISTS weather_analytics" \
+    --result-configuration "OutputLocation=s3://your-bucket/athena-results/"
 ```
 
-6. Initialize dbt:
+6. Initialize Great Expectations:
 ```bash
-dbt deps
-dbt run
+great_expectations init
+```
+
+7. Set up Airflow:
+```bash
+# Initialize Airflow
+airflow db init
+
+# Create Airflow user
+airflow users create \
+    --username admin \
+    --firstname Admin \
+    --lastname User \
+    --role Admin \
+    --email admin@example.com \
+    --password your_password
 ```
 
 ## Usage
@@ -76,108 +114,99 @@ bin/kafka-server-start.sh config/server.properties
 
 2. Start the crawler service:
 ```bash
-python examples/run_crawler.py
+python src/crawler/noaa_crawler.py
 ```
 
 The crawler service will:
 - Run as a background process
-- Automatically start/stop based on market hours (9:30 AM - 4:00 PM ET)
-- Make 25 evenly-spaced requests during trading hours
+- Collect weather data based on configured intervals
 - Publish data to Kafka topics
+- Write data to S3 in Parquet format
 - Log activities to `crawler.log`
-- Use minimal resources when market is closed
 - Handle graceful shutdown on system signals
 
-### Stopping the Crawler
+### Data Validation
 
-The crawler can be stopped using:
-- `Ctrl+C` in the terminal
-- The process will gracefully shut down and flush any pending Kafka messages
-- All resources will be properly cleaned up
-
-### Running as a System Service
-
-To run the crawler as a system service:
-
-1. Create a systemd service file:
+1. Run Great Expectations validation:
 ```bash
-sudo nano /etc/systemd/system/financial-crawler.service
+python great_expectations/weather_data_suite.py
 ```
 
-2. Add the following configuration:
-```ini
-[Unit]
-Description=Financial Data Crawler Service
-After=network.target kafka.service
-
-[Service]
-Type=simple
-User=your_user
-WorkingDirectory=/path/to/cursor-data-eng
-Environment=PYTHONPATH=/path/to/cursor-data-eng
-ExecStart=/path/to/cursor-data-eng/.venv/bin/python examples/run_crawler.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-3. Enable and start the service:
+2. View validation results:
 ```bash
-sudo systemctl enable financial-crawler
-sudo systemctl start financial-crawler
+# Check S3 for validation results
+aws s3 ls s3://your-validation-results-bucket/
 ```
 
-### Monitoring
+### Monitoring with Airflow
 
-1. Check crawler logs:
+1. Start Airflow services:
 ```bash
-tail -f crawler.log
-```
-or
-```bash
-systemctl status financial-crawler.service
+airflow webserver -p 8080
+airflow scheduler
 ```
 
-2. Monitor Kafka topics:
-```bash
-# List all topics
-kafka-topics.sh --list --bootstrap-server localhost:9092
+2. Access the Airflow UI at http://localhost:8080
 
-# View messages in a topic
-kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic market.intraday --from-beginning
-```
+3. Monitor data quality:
+- Check the `weather_data_monitoring` DAG
+- View task logs and execution history
+- Monitor data quality scores
+- Track anomalies and issues
 
-3. Check database tables:
+### Querying Data with Athena
+
+1. Access Athena console in AWS
+2. Select the `weather_analytics` database
+3. Run example queries:
 ```sql
--- Connect to database
-psql financial_analytics
+-- Check data quality scores
+SELECT 
+    station_id,
+    AVG(data_quality_score) as avg_quality_score,
+    COUNT(*) as record_count
+FROM weather_data
+WHERE date >= current_date - interval '1' day
+GROUP BY station_id;
 
--- View recent data
-SELECT * FROM fct_stock_performance 
-ORDER BY trading_date DESC 
-LIMIT 5;
-
--- Check technical indicators
-SELECT * FROM int_technical_indicators 
-WHERE trading_date = CURRENT_DATE;
+-- Find temperature anomalies
+SELECT 
+    station_id,
+    date,
+    temperature_celsius,
+    temperature_anomaly
+FROM weather_data
+WHERE temperature_anomaly = true
+    AND date >= current_date - interval '1' day;
 ```
 
 ## Data Flow
 
 1. **Data Collection**
-   - Alpha Vantage API → Raw JSON files in `data/raw/`
-   - Kafka topics: `market.raw`, `market.intraday`, `market.sentiment`, `market.indicators`
+   - NOAA API → Raw JSON files in `data/raw/`
+   - Kafka topics: `weather.raw`, `weather.metrics`, `weather.patterns`, `weather.indices`
 
 2. **Data Processing**
-   - Raw data → Staging tables
-   - Technical indicators calculation
-   - Performance metrics computation
+   - Raw data → Spark Structured Streaming
+   - Weather metrics calculation
+   - Pattern detection and climate indices computation
+   - Data quality scoring
 
 3. **Data Storage**
-   - Processed data → PostgreSQL
-   - Tables: `fct_stock_performance`, `int_technical_indicators`
+   - Processed data → S3 (Parquet format)
+   - Partitioned by year/month/day
+   - Optimized for Athena queries
+
+4. **Data Validation**
+   - Great Expectations validation suite
+   - Automated quality checks
+   - Validation results stored in S3
+
+5. **Monitoring**
+   - Airflow DAGs for workflow orchestration
+   - Data quality monitoring
+   - Anomaly detection
+   - Performance metrics
 
 ## Project Structure
 
@@ -187,27 +216,43 @@ WHERE trading_date = CURRENT_DATE;
 │   └── raw/           # Raw JSON data files
 ├── models/
 │   ├── staging/       # Raw data models
-│   ├── intermediate/  # Technical indicators
+│   ├── intermediate/  # Weather metrics
 │   └── marts/         # Business-ready models
 ├── src/
-│   ├── crawler_service.py # Background crawler service
-│   ├── extract.py     # Data extraction
-│   ├── kafka_config.py # Kafka configuration
-│   └── utils.py       # Utility functions
-├── examples/
-│   └── run_crawler.py # Crawler execution script
-├── .env.example       # Environment variables template
-└── requirements.txt   # Python dependencies
+│   ├── crawler/       # Crawler implementation
+│   │   └── noaa_crawler.py
+│   ├── transform/     # Data transformation
+│   └── utils/         # Utility functions
+├── great_expectations/
+│   └── weather_data_suite.py
+├── dags/
+│   └── weather_data_monitoring.py
+├── config/
+│   └── noaa_config.yml
+├── .env.example
+└── requirements.txt
 ```
 
-## Error Handling
+## Security
 
-- All errors are logged to `crawler.log`
-- Failed API requests are retried with exponential backoff
-- Kafka message delivery failures are logged
-- Database connection issues trigger appropriate error handling
-- Service automatically recovers from crashes
-- Graceful shutdown on system signals
+The project includes a pre-commit hook that prevents accidental commits of sensitive information:
+- API keys and tokens
+- Passwords and credentials
+- Private keys
+- Email addresses
+- IP addresses
+- Credit card numbers
+- Social security numbers
+
+To ensure the hook is active:
+```bash
+# Make the hook executable
+chmod +x .git/hooks/pre-commit
+
+# Test the hook
+git add .
+git commit -m "Test commit"
+```
 
 ## Contributing
 
