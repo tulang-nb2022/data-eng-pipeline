@@ -152,16 +152,24 @@ class AlphaVantageExtractor(DataExtractor):
             {'intraday': data}
         )
         
+        # Check if we have any data
+        if not time_series:
+            logger.warning(f"No intraday data available for {symbol}")
+            return pd.DataFrame()
+            
         df = pd.DataFrame.from_dict(time_series, orient='index')
         df.index = pd.to_datetime(df.index)
-        df.columns = ['open', 'high', 'low', 'close', 'volume']
         
-        # Publish processed data to Kafka
-        self._publish_to_kafka(
-            self.kafka_config.TOPICS['intraday'],
-            symbol,
-            df.to_dict(orient='records')
-        )
+        # Only rename columns if we have data
+        if not df.empty:
+            df.columns = ['open', 'high', 'low', 'close', 'volume']
+            
+            # Publish processed data to Kafka
+            self._publish_to_kafka(
+                self.kafka_config.TOPICS['intraday'],
+                symbol,
+                df.to_dict(orient='records')
+            )
         
         return df
 
