@@ -1,0 +1,34 @@
+# Weather Crawler Configuration
+
+# Kafka Configuration
+kafka:
+  bootstrap_servers: localhost:9092
+  topic: weather.forecast
+  client_id: weather-crawler
+  group_id: weather-crawler-group
+
+# API Configuration
+api:
+  base_url: https://api.weather.gov
+  rate_limit:
+    requests_per_second: 1
+  user_agent: (Weather Data Crawler, your_email@example.com)
+
+# Data Processing
+data:
+  location:
+    latitude: 55.3422
+    longitude: 131.6461
+  metrics:
+    temperature: true
+    precipitation: true
+    wind_speed: true
+    humidity: true
+    pressure: true
+    visibility: true
+
+# Logging Configuration
+logging:
+  level: INFO
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  file: crawler.log 

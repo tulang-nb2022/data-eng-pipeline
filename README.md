@@ -95,7 +95,7 @@ airflow users create \
     --firstname Admin \
     --lastname User \
     --role Admin \
-    --email admin@example.com \
+    --email your_email \
     --password your_password
 ```
 
