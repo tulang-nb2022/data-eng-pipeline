@@ -8,8 +8,11 @@ import io.delta.tables._
 import org.apache.spark.sql.streaming.StreamingQueryListener.{QueryStartedEvent, QueryProgressEvent, QueryTerminatedEvent}
 import java.time.{Duration, Instant}
 import scala.collection.mutable
+import com.typesafe.config.{Config, ConfigFactory}
 
 trait DataTransformer {
+  protected val config: Config = ConfigFactory.load("weather_config.yml")
+  
   def transform(df: DataFrame): DataFrame
   
   def validateData(df: DataFrame): Unit = {
@@ -29,8 +32,8 @@ trait DataTransformer {
   // Common streaming configuration
   protected def createStreamingQuery(
     inputStream: DataFrame,
-    checkpointLocation: String,
-    outputPath: String,
+    checkpointLocation: String = config.getString("storage.checkpoint_location"),
+    outputPath: String = config.getString("storage.processed_data_path"),
     triggerInterval: String = "1 minute"
   ): StreamingQuery = {
     inputStream.writeStream

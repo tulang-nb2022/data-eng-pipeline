@@ -27,6 +27,13 @@ data:
     pressure: true
     visibility: true
 
+# Storage Configuration
+storage:
+  raw_data_path: "s3://data-eng-bucket-345/weather-data/raw"
+  processed_data_path: "s3://data-eng-bucket-345/weather-data/processed"
+  checkpoint_location: "s3://data-eng-bucket-345/weather-data/checkpoints"
+  aggregations_path: "s3://data-eng-bucket-345/weather-data/aggregations"
+
 # Logging Configuration
 logging:
   level: INFO
