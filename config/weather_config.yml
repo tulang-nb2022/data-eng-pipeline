@@ -18,7 +18,7 @@ api:
 data:
   location:
     latitude: 55.3422
-    longitude: 131.6461
+    longitude: -131.6461
   metrics:
     temperature: true
     precipitation: true

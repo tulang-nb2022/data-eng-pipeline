@@ -129,81 +129,92 @@ class NOAADataTransformer extends DataTransformer {
   override def transform(df: DataFrame): DataFrame = {
     validateData(df)
     
-    // Convert temperature from tenths of Celsius to Celsius
-    val withTemperature = df.withColumn("temperature_celsius",
-      col("temperature").cast(DoubleType) / 10.0
-    )
+    // Extract location metadata
+    val withLocation = df
+      .withColumn("forecast_office", get_json_object(col("properties"), "$.forecastOffice"))
+      .withColumn("grid_id", get_json_object(col("properties"), "$.gridId"))
+      .withColumn("grid_x", get_json_object(col("properties"), "$.gridX").cast(IntegerType))
+      .withColumn("grid_y", get_json_object(col("properties"), "$.gridY").cast(IntegerType))
+      .withColumn("timezone", get_json_object(col("properties"), "$.timeZone"))
+      .withColumn("radar_station", get_json_object(col("properties"), "$.radarStation"))
+      .withColumn("relative_location", get_json_object(col("properties"), "$.relativeLocation"))
+      .withColumn("city", get_json_object(col("relative_location"), "$.properties.city"))
+      .withColumn("state", get_json_object(col("relative_location"), "$.properties.state"))
+      .withColumn("distance_meters", get_json_object(col("relative_location"), "$.properties.distance.value").cast(DoubleType))
+      .withColumn("bearing_degrees", get_json_object(col("relative_location"), "$.properties.bearing.value").cast(DoubleType))
     
-    // Convert precipitation from tenths of mm to mm
-    val withPrecipitation = withTemperature.withColumn("precipitation_mm",
-      col("precipitation").cast(DoubleType) / 10.0
-    )
+    // Add forecast URLs for further data enrichment
+    val withUrls = withLocation
+      .withColumn("forecast_url", get_json_object(col("properties"), "$.forecast"))
+      .withColumn("forecast_hourly_url", get_json_object(col("properties"), "$.forecastHourly"))
+      .withColumn("forecast_grid_data_url", get_json_object(col("properties"), "$.forecastGridData"))
+      .withColumn("observation_stations_url", get_json_object(col("properties"), "$.observationStations"))
     
-    // Add derived columns with real-time calculations
-    val withDerived = withPrecipitation
-      .withColumn("is_rainy_day", col("precipitation_mm") > 0)
-      .withColumn("temperature_fahrenheit",
-        (col("temperature_celsius") * 9/5) + 32
-      )
+    // Add time-based features
+    val withTimeFeatures = withUrls
       .withColumn("processing_timestamp", current_timestamp())
-      .withColumn("data_quality_score", lit(1.0))  // For Great Expectations validation
+      .withColumn("year", year(col("processing_timestamp")))
+      .withColumn("month", month(col("processing_timestamp")))
+      .withColumn("day", dayofmonth(col("processing_timestamp")))
+      .withColumn("hour", hour(col("processing_timestamp")))
+      .withColumn("day_of_week", dayofweek(col("processing_timestamp")))
+      .withColumn("is_weekend", 
+        when(col("day_of_week").isin(1, 7), true).otherwise(false))
     
-    // Add date-based features
-    val withDateFeatures = withDerived
-      .withColumn("year", year(col("date")))
-      .withColumn("month", month(col("date")))
-      .withColumn("day", dayofmonth(col("date")))
+    // Add seasonal features
+    val withSeasonal = withTimeFeatures
       .withColumn("season",
-        when(month(col("date")).between(3, 5), "Spring")
-          .when(month(col("date")).between(6, 8), "Summer")
-          .when(month(col("date")).between(9, 11), "Fall")
+        when(month(col("processing_timestamp")).between(3, 5), "Spring")
+          .when(month(col("processing_timestamp")).between(6, 8), "Summer")
+          .when(month(col("processing_timestamp")).between(9, 11), "Fall")
           .otherwise("Winter")
       )
+      .withColumn("is_daylight_savings", 
+        when(month(col("processing_timestamp")).between(3, 11), true).otherwise(false))
     
-    // Add real-time weather patterns
-    val withPatterns = withDateFeatures
-      .withColumn("temperature_trend",
-        window(col("processing_timestamp"), "5 minutes").over(
-          Window.partitionBy("station_id").orderBy("processing_timestamp")
-        )
-      )
-      .withColumn("is_heat_wave",
-        when(
-          col("temperature_celsius") > 30 &&
-          lag("temperature_celsius", 1).over(Window.partitionBy("station_id").orderBy("processing_timestamp")) > 30 &&
-          lag("temperature_celsius", 2).over(Window.partitionBy("station_id").orderBy("processing_timestamp")) > 30,
-          true
-        ).otherwise(false)
-      )
-      .withColumn("is_cold_snap",
-        when(
-          col("temperature_celsius") < 0 &&
-          lag("temperature_celsius", 1).over(Window.partitionBy("station_id").orderBy("processing_timestamp")) < 0 &&
-          lag("temperature_celsius", 2).over(Window.partitionBy("station_id").orderBy("processing_timestamp")) < 0,
-          true
-        ).otherwise(false)
-      )
+    // Add location-based features
+    val withLocationFeatures = withSeasonal
+      .withColumn("is_coastal", 
+        when(col("city").isin("Ketchikan", "Juneau", "Sitka"), true).otherwise(false))
+      .withColumn("elevation_zone",
+        when(col("distance_meters") < 1000, "Low")
+          .when(col("distance_meters") < 2000, "Medium")
+          .otherwise("High"))
     
-    // Add real-time anomaly detection
-    val withAnomalies = withPatterns
-      .withColumn("temperature_anomaly",
-        when(
-          abs(col("temperature_celsius") - 
-            avg("temperature_celsius").over(
-              Window.partitionBy("station_id")
-                .orderBy("processing_timestamp")
-                .rowsBetween(-10, 0)
-            )) > 
-          3 * stddev("temperature_celsius").over(
-            Window.partitionBy("station_id")
-              .orderBy("processing_timestamp")
-              .rowsBetween(-10, 0)
-          ),
-          true
-        ).otherwise(false)
-      )
+    // Add weather pattern detection
+    val withPatterns = withLocationFeatures
+      .withColumn("weather_pattern",
+        when(col("season") === "Summer" && col("is_coastal"), "Coastal Summer")
+          .when(col("season") === "Winter" && col("is_coastal"), "Coastal Winter")
+          .when(col("season") === "Summer", "Inland Summer")
+          .when(col("season") === "Winter", "Inland Winter")
+          .otherwise("Transitional"))
     
-    withAnomalies
+    // Add data quality metrics
+    val withQuality = withPatterns
+      .withColumn("data_completeness_score",
+        when(col("forecast_url").isNotNull && 
+             col("forecast_hourly_url").isNotNull && 
+             col("forecast_grid_data_url").isNotNull, 1.0)
+          .otherwise(0.5))
+      .withColumn("location_accuracy_score",
+        when(col("distance_meters") < 1000, 1.0)
+          .when(col("distance_meters") < 2000, 0.8)
+          .otherwise(0.6))
+      .withColumn("overall_quality_score",
+        (col("data_completeness_score") + col("location_accuracy_score")) / 2)
+    
+    // Add real-time monitoring features
+    val withMonitoring = withQuality
+      .withColumn("data_freshness_minutes",
+        unix_timestamp(current_timestamp()) - unix_timestamp(col("processing_timestamp")))
+      .withColumn("is_data_stale",
+        when(col("data_freshness_minutes") > 30, true).otherwise(false))
+      .withColumn("needs_attention",
+        when(col("is_data_stale") || col("overall_quality_score") < 0.7, true)
+          .otherwise(false))
+    
+    withMonitoring
   }
 
   def streamTransform(
@@ -232,7 +243,7 @@ class NOAADataTransformer extends DataTransformer {
     
     inputStream.sparkSession.streams.addListener(listener)
     
-    // Create the streaming query
+    // Create the streaming query with enhanced monitoring
     val query = createStreamingQuery(
       inputStream.transform(transform),
       checkpointLocation,
@@ -240,7 +251,6 @@ class NOAADataTransformer extends DataTransformer {
       triggerInterval
     )
     
-    // Add watermark for late data handling
     query.awaitTermination()
     query
   }
@@ -250,29 +260,33 @@ class NOAADataTransformer extends DataTransformer {
     checkpointLocation: String,
     outputPath: String
   ): StreamingQuery = {
-    // Create sliding window aggregations
+    // Create sliding window aggregations with enhanced metrics
     val aggregatedStream = inputStream
       .withWatermark("processing_timestamp", "10 minutes")
       .groupBy(
         window(col("processing_timestamp"), "5 minutes", "1 minute"),
-        col("station_id")
+        col("grid_id"),
+        col("city"),
+        col("season"),
+        col("weather_pattern")
       )
       .agg(
-        avg("temperature_celsius").as("avg_temperature"),
-        max("temperature_celsius").as("max_temperature"),
-        min("temperature_celsius").as("min_temperature"),
-        sum("precipitation_mm").as("total_precipitation"),
         count("*").as("observation_count"),
-        avg("data_quality_score").as("data_quality_score")  // For monitoring
+        avg("overall_quality_score").as("avg_quality_score"),
+        avg("data_freshness_minutes").as("avg_data_freshness"),
+        count(when(col("is_data_stale"), true)).as("stale_data_count"),
+        count(when(col("needs_attention"), true)).as("attention_needed_count"),
+        collect_set("forecast_office").as("forecast_offices"),
+        collect_set("radar_station").as("radar_stations")
       )
     
-    // Write aggregated results
+    // Write aggregated results with partitioning
     aggregatedStream.writeStream
       .format("parquet")
       .outputMode(OutputMode.Append)
       .option("checkpointLocation", s"$checkpointLocation/aggregations")
       .option("path", s"$outputPath/aggregations")
-      .partitionBy("year", "month", "day")
+      .partitionBy("year", "month", "day", "grid_id")
       .trigger(Trigger.ProcessingTime("1 minute"))
       .start()
   }

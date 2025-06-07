@@ -18,48 +18,136 @@ def create_weather_expectation_suite():
     
     # Define expectations
     expectations = [
+        # Location metadata validation
         {
             "expectation_type": "expect_column_values_to_not_be_null",
             "kwargs": {
-                "column": "temperature_celsius",
+                "column": "grid_id",
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "forecast_office",
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "city",
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "state",
+                "mostly": 1.0
+            }
+        },
+        
+        # URL validation
+        {
+            "expectation_type": "expect_column_values_to_match_regex",
+            "kwargs": {
+                "column": "forecast_url",
+                "regex": "^https://api.weather.gov/gridpoints/.*$",
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_match_regex",
+            "kwargs": {
+                "column": "forecast_hourly_url",
+                "regex": "^https://api.weather.gov/gridpoints/.*$",
+                "mostly": 1.0
+            }
+        },
+        
+        # Distance and bearing validation
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "distance_meters",
+                "min_value": 0,
+                "max_value": 100000,
                 "mostly": 0.95
             }
         },
         {
             "expectation_type": "expect_column_values_to_be_between",
             "kwargs": {
-                "column": "temperature_celsius",
-                "min_value": -90,
+                "column": "bearing_degrees",
+                "min_value": 0,
+                "max_value": 360,
+                "mostly": 0.95
+            }
+        },
+        
+        # Data quality metrics validation
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "data_completeness_score",
+                "min_value": 0,
+                "max_value": 1,
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "location_accuracy_score",
+                "min_value": 0,
+                "max_value": 1,
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "overall_quality_score",
+                "min_value": 0,
+                "max_value": 1,
+                "mostly": 1.0
+            }
+        },
+        
+        # Time-based validation
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "processing_timestamp",
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "data_freshness_minutes",
+                "min_value": 0,
                 "max_value": 60,
                 "mostly": 0.95
             }
         },
+        
+        # Pattern validation
         {
-            "expectation_type": "expect_column_values_to_not_be_null",
+            "expectation_type": "expect_column_values_to_be_in_set",
             "kwargs": {
-                "column": "precipitation_mm",
-                "mostly": 0.95
+                "column": "weather_pattern",
+                "value_set": ["Coastal Summer", "Coastal Winter", "Inland Summer", "Inland Winter", "Transitional"],
+                "mostly": 1.0
             }
         },
         {
-            "expectation_type": "expect_column_values_to_be_between",
+            "expectation_type": "expect_column_values_to_be_in_set",
             "kwargs": {
-                "column": "precipitation_mm",
-                "min_value": 0,
-                "max_value": 1000,
-                "mostly": 0.95
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_not_be_null",
-            "kwargs": {
-                "column": "station_id"
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_not_be_null",
-            "kwargs": {
-                "column": "date"
+                "column": "season",
+                "value_set": ["Spring", "Summer", "Fall", "Winter"],
+                "mostly": 1.0
             }
         }
     ]

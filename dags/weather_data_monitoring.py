@@ -47,25 +47,47 @@ def check_data_quality(**context):
 # Define Athena queries
 data_quality_query = """
 SELECT 
-    station_id,
-    AVG(data_quality_score) as avg_quality_score,
+    grid_id,
+    city,
+    state,
+    AVG(overall_quality_score) as avg_quality_score,
+    AVG(data_completeness_score) as avg_completeness,
+    AVG(location_accuracy_score) as avg_location_accuracy,
     COUNT(*) as record_count,
     MIN(processing_timestamp) as first_record,
-    MAX(processing_timestamp) as last_record
+    MAX(processing_timestamp) as last_record,
+    AVG(data_freshness_minutes) as avg_freshness
 FROM weather_data
 WHERE date >= current_date - interval '1' day
-GROUP BY station_id
+GROUP BY grid_id, city, state
 """
 
-anomaly_query = """
+weather_pattern_query = """
 SELECT 
-    station_id,
-    date,
-    COUNT(*) as anomaly_count
+    grid_id,
+    city,
+    weather_pattern,
+    season,
+    COUNT(*) as pattern_count,
+    AVG(overall_quality_score) as avg_quality_score
 FROM weather_data
-WHERE temperature_anomaly = true
-    AND date >= current_date - interval '1' day
-GROUP BY station_id, date
+WHERE date >= current_date - interval '1' day
+GROUP BY grid_id, city, weather_pattern, season
+ORDER BY pattern_count DESC
+"""
+
+stale_data_query = """
+SELECT 
+    grid_id,
+    city,
+    COUNT(*) as total_records,
+    COUNT(CASE WHEN is_data_stale THEN 1 END) as stale_records,
+    COUNT(CASE WHEN needs_attention THEN 1 END) as attention_needed,
+    AVG(data_freshness_minutes) as avg_freshness
+FROM weather_data
+WHERE date >= current_date - interval '1' day
+GROUP BY grid_id, city
+HAVING stale_records > 0 OR attention_needed > 0
 """
 
 # Create tasks
@@ -91,22 +113,39 @@ wait_for_quality = AthenaSensor(
     dag=dag
 )
 
-run_anomaly_query = AthenaOperator(
-    task_id='run_anomaly_query',
-    query=anomaly_query,
+run_pattern_query = AthenaOperator(
+    task_id='run_pattern_query',
+    query=weather_pattern_query,
     database='weather_analytics',
-    output_location='s3://your-bucket/athena-results/anomalies/',
+    output_location='s3://your-bucket/athena-results/patterns/',
     aws_conn_id='aws_default',
     dag=dag
 )
 
-wait_for_anomaly = AthenaSensor(
-    task_id='wait_for_anomaly',
-    query_execution_id=run_anomaly_query.output,
+wait_for_pattern = AthenaSensor(
+    task_id='wait_for_pattern',
+    query_execution_id=run_pattern_query.output,
+    aws_conn_id='aws_default',
+    dag=dag
+)
+
+run_stale_query = AthenaOperator(
+    task_id='run_stale_query',
+    query=stale_data_query,
+    database='weather_analytics',
+    output_location='s3://your-bucket/athena-results/stale/',
+    aws_conn_id='aws_default',
+    dag=dag
+)
+
+wait_for_stale = AthenaSensor(
+    task_id='wait_for_stale',
+    query_execution_id=run_stale_query.output,
     aws_conn_id='aws_default',
     dag=dag
 )
 
 # Set task dependencies
 check_quality >> run_quality_query >> wait_for_quality
-check_quality >> run_anomaly_query >> wait_for_anomaly 
+check_quality >> run_pattern_query >> wait_for_pattern
+check_quality >> run_stale_query >> wait_for_stale 
