@@ -3,7 +3,7 @@
 # Kafka Configuration
 kafka:
   bootstrap_servers: localhost:9092
-  topic: weather.forecast
+  topic: weather-forecast
   client_id: weather-crawler
   group_id: weather-crawler-group
 
