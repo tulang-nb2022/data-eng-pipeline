@@ -59,6 +59,7 @@ class WeatherCrawler:
         kafka_config = self.config['kafka']
         return KafkaProducer(
             bootstrap_servers=['localhost:9092'],
+            api_version=(0, 10, 2),
             value_serializer=lambda x: json.dumps(x).encode('utf-8')
         )
     
@@ -141,7 +142,7 @@ class WeatherCrawler:
         except Exception as e:
             logger.error(f"Error sending to Kafka: {str(e)}")
     
-    def crawl_weather_data(self, lat: float = 55.3422, lon: float = 131.6461) -> None:
+    def crawl_weather_data(self, lat: float = 55.3422, lon: float = -131.6461) -> None:
         """Crawl weather data for a specific location"""
         try:
             # Get forecast data
