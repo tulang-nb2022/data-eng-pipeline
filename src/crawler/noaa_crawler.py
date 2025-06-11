@@ -4,7 +4,7 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 import requests
-from kafka import KafkaProducer
+from confluent_kafka import Producer
 import pandas as pd
 import numpy as np
 from scipy import stats
@@ -48,20 +48,37 @@ class WeatherCrawler:
         self.producer = self._create_kafka_producer()
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': '(Weather Data Crawler, your_email)'
+            'User-Agent': self.config['api']['user_agent']
         })
         
     def _load_config(self, config_path: str) -> Dict:
         with open(config_path, 'r') as f:
             return yaml.safe_load(f)
     
-    def _create_kafka_producer(self) -> KafkaProducer:
+    def _create_kafka_producer(self) -> Producer:
         kafka_config = self.config['kafka']
-        return KafkaProducer(
-            bootstrap_servers=['localhost:9092'],
-            api_version=(0, 10, 2),
-            value_serializer=lambda x: json.dumps(x).encode('utf-8')
-        )
+        config = {
+            'bootstrap.servers': kafka_config['bootstrap_servers'],
+            'client.id': kafka_config['client_id'],
+            'acks': 'all',
+            'retries': 3,
+            'retry.backoff.ms': 1000,
+            'compression.type': 'snappy',
+            'linger.ms': 5,
+            'batch.size': 16384,
+            'queue.buffering.max.messages': 100000,
+            'queue.buffering.max.ms': 1000,
+            'queue.buffering.max.kbytes': 1024,
+            'message.max.bytes': 1000000
+        }
+        return Producer(config)
+    
+    def delivery_report(self, err, msg):
+        """Callback for message delivery reports"""
+        if err is not None:
+            logger.error(f'Message delivery failed: {err}')
+        else:
+            logger.debug(f'Message delivered to {msg.topic()} [{msg.partition()}]')
     
     def get_forecast(self, lat: float, lon: float) -> Dict:
         """Get weather forecast for a specific location"""
@@ -86,57 +103,58 @@ class WeatherCrawler:
             logger.error(f"Error fetching forecast: {str(e)}")
             return {}
     
-    def _process_forecast_data(self, forecast_data: Dict, lat: float, lon: float) -> Dict:
-        """Process raw forecast data into standardized format"""
-        periods = forecast_data['properties']['periods']
+    def _process_forecast_data(self, forecast_data: Dict, lat: float, lon: float) -> List[Dict]:
+        """Process raw forecast data into a list of records"""
         processed_data = []
         
-        for period in periods:
-            processed_period = {
-                'timestamp': period['startTime'],
-                'temperature_celsius': self._fahrenheit_to_celsius(period['temperature']),
-                'wind_speed': self._convert_wind_speed(period['windSpeed']),
-                'wind_direction': period['windDirection'],
-                'forecast': period['shortForecast'],
-                'detailed_forecast': period['detailedForecast'],
-                'humidity': period.get('relativeHumidity', {}).get('value'),
-                'precipitation_probability': period.get('probabilityOfPrecipitation', {}).get('value'),
-                'latitude': lat,
-                'longitude': lon,
-                'processing_timestamp': datetime.utcnow().isoformat()
-            }
-            processed_data.append(processed_period)
-        
-        return processed_data
-    
-    def _fahrenheit_to_celsius(self, fahrenheit: float) -> float:
-        """Convert Fahrenheit to Celsius"""
-        return (fahrenheit - 32) * 5/9
-    
-    def _convert_wind_speed(self, wind_speed_str: str) -> float:
-        """Convert wind speed string to m/s"""
         try:
-            # Extract numeric value and unit
-            parts = wind_speed_str.split()
-            value = float(parts[0])
-            unit = parts[1].lower()
+            periods = forecast_data.get('properties', {}).get('periods', [])
             
-            # Convert to m/s
-            if unit == 'mph':
-                return value * 0.44704
-            elif unit == 'kph':
-                return value * 0.277778
-            else:
-                return value
-        except:
-            return 0.0
+            for period in periods:
+                record = {
+                    'timestamp': datetime.now().isoformat(),
+                    'grid_id': f"{lat}_{lon}",
+                    'latitude': lat,
+                    'longitude': lon,
+                    'start_time': period.get('startTime'),
+                    'end_time': period.get('endTime'),
+                    'temperature': period.get('temperature'),
+                    'temperature_unit': period.get('temperatureUnit'),
+                    'wind_speed': period.get('windSpeed'),
+                    'wind_direction': period.get('windDirection'),
+                    'short_forecast': period.get('shortForecast'),
+                    'detailed_forecast': period.get('detailedForecast'),
+                    'precipitation_probability': period.get('probabilityOfPrecipitation', {}).get('value'),
+                    'relative_humidity': period.get('relativeHumidity', {}).get('value'),
+                    'dewpoint': period.get('dewpoint', {}).get('value'),
+                    'dewpoint_unit': period.get('dewpoint', {}).get('unitCode'),
+                    'pressure': period.get('pressure', {}).get('value'),
+                    'pressure_unit': period.get('pressure', {}).get('unitCode'),
+                    'visibility': period.get('visibility', {}).get('value'),
+                    'visibility_unit': period.get('visibility', {}).get('unitCode')
+                }
+                processed_data.append(record)
+                
+        except Exception as e:
+            logger.error(f"Error processing forecast data: {str(e)}")
+            
+        return processed_data
     
     def send_to_kafka(self, data: List[Dict]) -> None:
         """Send data to Kafka topic"""
         topic = self.config['kafka']['topic']
         try:
             for record in data:
-                self.producer.send(topic, value=record)
+                self.producer.produce(
+                    topic=topic,
+                    key=str(record['grid_id']),
+                    value=json.dumps(record),
+                    callback=self.delivery_report
+                )
+                # Trigger any available delivery report callbacks
+                self.producer.poll(0)
+            
+            # Wait for all messages to be delivered
             self.producer.flush()
             logger.info(f"Successfully sent {len(data)} records to Kafka")
         except Exception as e:
@@ -162,6 +180,7 @@ class WeatherCrawler:
     
     def close(self) -> None:
         """Close the Kafka producer"""
+        self.producer.flush()
         self.producer.close()
 
 def main():
