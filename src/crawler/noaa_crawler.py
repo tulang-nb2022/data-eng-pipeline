@@ -181,7 +181,6 @@ class WeatherCrawler:
     def close(self) -> None:
         """Close the Kafka producer"""
         self.producer.flush()
-        self.producer.close()
 
 def main():
     # Initialize crawler
