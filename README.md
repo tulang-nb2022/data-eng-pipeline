@@ -1,37 +1,26 @@
-# Weather Data Crawler
+# Financial Data Pipeline
 
-A robust data pipeline for collecting and processing weather data using NOAA API, Kafka, and AWS services. This project has evolved from a financial data crawler to focus on weather data analysis and climate monitoring.
-
-> **Note**: The financial data crawler functionality is now deprecated. This version focuses on weather data collection and analysis.
+A robust data pipeline for collecting and processing financial market data using Alpha Vantage API, Kafka, and AWS services. This project focuses on real-time financial data collection, processing, and analysis.
 
 ## Features
 
-- Historical and real-time weather data collection
-- Rate-limited API requests to comply with NOAA API limits
-- Kafka integration for data streaming
+- Real-time financial data collection from Alpha Vantage API
+- Rate-limited API requests to comply with Alpha Vantage free tier limits (25 requests/day)
+- Kafka integration for data streaming with multiple topics
+- Comprehensive data transformation and enrichment
+- Error handling and logging with centralized error management
+- Background crawler service with graceful shutdown
+- Pre-commit hooks for security scanning
+- Data validation with Great Expectations
+- Apache Airflow for workflow orchestration
 - AWS S3 storage with Parquet format
 - Amazon Athena for interactive querying
-- Great Expectations for data validation
-- Apache Airflow for workflow orchestration
-- Advanced weather metrics calculation:
-  - Heat Index and Wind Chill
-  - Dew Point and Precipitation Intensity
-  - Standardized Precipitation Index (SPI)
-  - Temperature-Humidity Index (THI)
-- Weather pattern detection:
-  - Heat waves and cold snaps
-  - Temperature and precipitation anomalies
-  - Climate indices
-- Real-time data quality monitoring
-- Comprehensive error handling and logging
-- Efficient background service with configurable collection intervals
 
 ## Prerequisites
 
 - Python 3.8+
-- PostgreSQL 12+
 - Apache Kafka
-- NOAA API token
+- Alpha Vantage API key
 - AWS Account with:
   - S3 bucket
   - Athena database
@@ -63,19 +52,18 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 Edit `.env` with your configuration:
-- Add your NOAA API token
+- Add your Alpha Vantage API key
 - Configure AWS credentials
 - Set Kafka bootstrap servers
-- Configure database credentials
 
 5. Set up AWS resources:
 ```bash
 # Create S3 bucket
-aws s3 mb s3://your-weather-data-bucket
+aws s3 mb s3://your-financial-data-bucket
 
 # Create Athena database
 aws athena start-query-execution \
-    --query-string "CREATE DATABASE IF NOT EXISTS weather_analytics" \
+    --query-string "CREATE DATABASE IF NOT EXISTS financial_analytics" \
     --result-configuration "OutputLocation=s3://your-bucket/athena-results/"
 ```
 
@@ -114,16 +102,48 @@ bin/kafka-server-start.sh config/server.properties
 
 2. Start the crawler service:
 ```bash
-python src/crawler/noaa_crawler.py
+python src/crawler_service.py
 ```
 
 The crawler service will:
 - Run as a background process
-- Collect weather data based on configured intervals
-- Publish data to Kafka topics
-- Write data to S3 in Parquet format
+- Collect financial data during market hours (9:30 AM - 4:00 PM ET)
+- Respect Alpha Vantage rate limits (25 requests/day)
+- Publish data to Kafka topics: `market.intraday`, `market.sentiment`, `market.indicators`, `market.raw`
 - Log activities to `crawler.log`
 - Handle graceful shutdown on system signals
+
+### Running Data Transformations
+
+1. Configure the transformation job:
+```bash
+# Edit run_transform.sh with your specific paths
+nano run_transform.sh
+```
+
+2. Make the script executable:
+```bash
+chmod +x run_transform.sh
+```
+
+3. Run the transformation job:
+```bash
+./run_transform.sh
+```
+
+The transformation job will:
+- Build the Scala project using SBT
+- Read raw data from S3
+- Apply transformations using Spark
+- Write processed data back to S3 in Parquet format
+- Handle different data types (intraday, sentiment, indicators)
+
+### Data Collection
+
+The crawler collects the following data types:
+- **Intraday Data**: Real-time price data (open, high, low, close, volume)
+- **Sentiment Data**: News sentiment analysis and scores
+- **Technical Indicators**: RSI, MACD, and other technical analysis metrics
 
 ### Data Validation
 
@@ -157,40 +177,39 @@ airflow scheduler
 ### Querying Data with Athena
 
 1. Access Athena console in AWS
-2. Select the `weather_analytics` database
+2. Select the `financial_analytics` database
 3. Run example queries:
 ```sql
 -- Check data quality scores
 SELECT 
-    station_id,
+    symbol,
     AVG(data_quality_score) as avg_quality_score,
     COUNT(*) as record_count
-FROM weather_data
+FROM market_data
 WHERE date >= current_date - interval '1' day
-GROUP BY station_id;
+GROUP BY symbol;
 
--- Find temperature anomalies
+-- Find price anomalies
 SELECT 
-    station_id,
+    symbol,
     date,
-    temperature_celsius,
-    temperature_anomaly
-FROM weather_data
-WHERE temperature_anomaly = true
+    close_price,
+    price_change_pct
+FROM market_data
+WHERE abs(price_change_pct) > 5
     AND date >= current_date - interval '1' day;
 ```
 
 ## Data Flow
 
 1. **Data Collection**
-   - NOAA API → Raw JSON files in `data/raw/`
-   - Kafka topics: `weather.raw`, `weather.metrics`, `weather.patterns`, `weather.indices`
+   - Alpha Vantage API → Raw JSON data
+   - Kafka topics: `market.intraday`, `market.sentiment`, `market.indicators`, `market.raw`
 
 2. **Data Processing**
-   - Raw data → Spark Structured Streaming
-   - Weather metrics calculation
-   - Pattern detection and climate indices computation
-   - Data quality scoring
+   - Raw data → Data transformation and enrichment
+   - Technical indicators calculation
+   - Data quality scoring and validation
 
 3. **Data Storage**
    - Processed data → S3 (Parquet format)
@@ -216,22 +235,45 @@ WHERE temperature_anomaly = true
 │   └── raw/           # Raw JSON data files
 ├── models/
 │   ├── staging/       # Raw data models
-│   ├── intermediate/  # Weather metrics
+│   ├── intermediate/  # Financial metrics
 │   └── marts/         # Business-ready models
 ├── src/
 │   ├── crawler/       # Crawler implementation
 │   │   └── noaa_crawler.py
-│   ├── transform/     # Data transformation
-│   └── utils/         # Utility functions
+│   ├── main/
+│   │   └── python/    # Python utilities
+│   ├── extract.py     # Data extraction
+│   ├── transform.py   # Data transformation
+│   ├── kafka_config.py # Kafka configuration
+│   ├── crawler_service.py # Background crawler service
+│   └── utils.py       # Utility functions
 ├── great_expectations/
 │   └── weather_data_suite.py
 ├── dags/
 │   └── weather_data_monitoring.py
 ├── config/
-│   └── noaa_config.yml
-├── .env.example
-└── requirements.txt
+│   └── weather_config.yml
+├── requirements.txt
+└── build.sbt          # Scala build configuration
 ```
+
+## Configuration
+
+### Alpha Vantage API
+- Free tier: 25 requests per day
+- Rate limiting implemented to respect limits
+- Trading hours: 9:30 AM - 4:00 PM ET (Monday-Friday)
+
+### Kafka Topics
+- `market.intraday`: Real-time price data
+- `market.sentiment`: News sentiment analysis
+- `market.indicators`: Technical indicators
+- `market.raw`: Raw API responses
+
+### S3 Storage
+- Raw data: `s3://your-bucket/raw/`
+- Processed data: `s3://your-bucket/processed/`
+- Checkpoints: `s3://your-bucket/checkpoints/`
 
 ## Security
 
@@ -253,6 +295,15 @@ chmod +x .git/hooks/pre-commit
 git add .
 git commit -m "Test commit"
 ```
+
+## Error Handling
+
+The pipeline includes comprehensive error handling:
+- API rate limit management
+- Network timeout handling
+- Data validation errors
+- Kafka connection issues
+- Graceful shutdown on system signals
 
 ## Contributing
 
