@@ -2,6 +2,12 @@ name := "data-engineering-project"
 version := "0.1.0"
 scalaVersion := "2.12.15"
 
+// Add assembly plugin
+assembly / assemblyMergeStrategy := {
+  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case x => MergeStrategy.first
+}
+
 libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql" % "3.2.0",
   "org.apache.spark" %% "spark-streaming" % "3.2.0",
@@ -15,4 +21,4 @@ libraryDependencies ++= Seq(
 )
 
 // Enable Delta Lake SQL commands
-sparkDependencies += "io.delta" %% "delta-core" % "1.1.0" 
+// sparkDependencies += "io.delta" %% "delta-core" % "1.1.0" 

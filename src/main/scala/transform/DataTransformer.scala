@@ -4,6 +4,7 @@ import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
 import org.apache.spark.sql.streaming.{Trigger, OutputMode, StreamingQuery, StreamingQueryListener}
+import org.apache.spark.sql.expressions.Window
 import io.delta.tables._
 import org.apache.spark.sql.streaming.StreamingQueryListener.{QueryStartedEvent, QueryProgressEvent, QueryTerminatedEvent}
 import java.time.{Duration, Instant}
@@ -77,10 +78,11 @@ class FinancialDataTransformer extends DataTransformer {
     
     // Convert string columns to numeric, removing '$' and ',' characters
     val numericDf = df.columns.foldLeft(df) { (accDf, colName) =>
-      val col = accDf(colName)
-      if (col.dataType == StringType) {
+      val schema = accDf.schema
+      val field = schema.fields.find(_.name == colName).get
+      if (field.dataType == StringType) {
         accDf.withColumn(colName,
-          regexp_replace(regexp_replace(col, "\\$", ""), ",", "").cast(DoubleType)
+          regexp_replace(regexp_replace(col(colName), "\\$", ""), ",", "").cast(DoubleType)
         )
       } else accDf
     }
