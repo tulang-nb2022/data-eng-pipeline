@@ -306,4 +306,56 @@ object DataTransformer {
       case _ => throw new IllegalArgumentException(s"Unknown source: $source")
     }
   }
+
+  def main(args: Array[String]): Unit = {
+    if (args.length < 3) {
+      println("Usage: DataTransformer <input_path> <source_type> <output_path>")
+      println("source_type options: eosdis, alphavantage, noaa")
+      System.exit(1)
+    }
+
+    val inputPath = args(0)
+    val sourceType = args(1)
+    val outputPath = args(2)
+
+    // Create Spark session
+    val spark = SparkSession.builder()
+      .appName("Data Transformation Job")
+      .config("spark.sql.adaptive.enabled", "true")
+      .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+      .getOrCreate()
+
+    try {
+      // Read data from input path
+      val inputDF = spark.read
+        .option("multiline", "true")
+        .json(inputPath)
+
+      println(s"Read ${inputDF.count()} records from $inputPath")
+
+      // Get appropriate transformer
+      val transformer = DataTransformer(sourceType)(spark)
+
+      // Transform data
+      val transformedDF = transformer.transform(inputDF)
+
+      println(s"Transformed data has ${transformedDF.count()} records")
+
+      // Write transformed data to output path
+      transformedDF.write
+        .mode("overwrite")
+        .partitionBy("year", "month", "day")
+        .parquet(outputPath)
+
+      println(s"Successfully wrote transformed data to $outputPath")
+
+    } catch {
+      case e: Exception =>
+        println(s"Error during transformation: ${e.getMessage}")
+        e.printStackTrace()
+        System.exit(1)
+    } finally {
+      spark.stop()
+    }
+  }
 } 
