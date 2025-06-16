@@ -24,7 +24,7 @@ export SPARK_HOME=/opt/spark
 
 # Run the transformation job
 $SPARK_HOME/bin/spark-submit \
-  --class transform.TransformJob \
+  --class transform.DataTransformer \
   --master local[*] \
   --driver-memory 4g \
   --executor-memory 4g \
