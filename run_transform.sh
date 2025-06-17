@@ -24,10 +24,11 @@ export SPARK_HOME=/opt/spark
 
 # Run the transformation job
 $SPARK_HOME/bin/spark-submit \
-  --class transform.DataTransformer \
+  --class transform.DataTransformerApp \
   --master local[*] \
   --driver-memory 4g \
   --executor-memory 4g \
+  --packages org.apache.hadoop:hadoop-aws:3.3.1,com.amazonaws:aws-java-sdk-s3:1.12.261 \
   target/scala-2.12/data-engineering-project-assembly-0.1.0.jar \
   "s3://data-eng-bucket-345/weather-forecast/raw" \
   "noaa" \

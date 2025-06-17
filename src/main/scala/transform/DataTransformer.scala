@@ -297,7 +297,8 @@ class NOAADataTransformer extends DataTransformer {
   }
 }
 
-object DataTransformer {
+// Separate object for the main method
+object DataTransformerApp {
   def apply(source: String)(implicit spark: SparkSession): DataTransformer = {
     source.toLowerCase match {
       case "eosdis" => new EOSDISTransformer
@@ -309,7 +310,7 @@ object DataTransformer {
 
   def main(args: Array[String]): Unit = {
     if (args.length < 3) {
-      println("Usage: DataTransformer <input_path> <source_type> <output_path>")
+      println("Usage: DataTransformerApp <input_path> <source_type> <output_path>")
       println("source_type options: eosdis, alphavantage, noaa")
       System.exit(1)
     }
@@ -318,11 +319,14 @@ object DataTransformer {
     val sourceType = args(1)
     val outputPath = args(2)
 
-    // Create Spark session
+    // Create Spark session with S3 support
     val spark = SparkSession.builder()
       .appName("Data Transformation Job")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+      .config("spark.hadoop.fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+      .config("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")
+      .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
       .getOrCreate()
 
     try {
@@ -334,7 +338,7 @@ object DataTransformer {
       println(s"Read ${inputDF.count()} records from $inputPath")
 
       // Get appropriate transformer
-      val transformer = DataTransformer(sourceType)(spark)
+      val transformer = DataTransformerApp(sourceType)(spark)
 
       // Transform data
       val transformedDF = transformer.transform(inputDF)

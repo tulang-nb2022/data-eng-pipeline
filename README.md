@@ -316,3 +316,223 @@ The pipeline includes comprehensive error handling:
 ## License
 
 [Your License Here] 
+
+# Data Engineering Project
+
+A comprehensive financial data pipeline using Alpha Vantage API, Kafka, Spark, Delta Lake, AWS Athena, Great Expectations, and Airflow.
+
+## Architecture
+
+- **Data Extraction**: Alpha Vantage API with rate limiting and trading schedule awareness
+- **Streaming**: Kafka for real-time data ingestion
+- **Processing**: Spark with Delta Lake for data transformation
+- **Storage**: AWS S3 for data lake storage
+- **Query**: AWS Athena for interactive queries
+- **Validation**: Great Expectations for data quality
+- **Orchestration**: Apache Airflow for workflow management
+
+## Prerequisites
+
+- Python 3.8+
+- Scala 2.12.15
+- Apache Spark 3.2.0
+- Apache Kafka 2.8.0
+- Apache Airflow 2.5.0
+- AWS CLI configured with appropriate permissions
+
+## Setup
+
+### 1. Environment Setup
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install Scala dependencies
+sbt compile
+```
+
+### 2. AWS Configuration
+
+The project uses AWS CLI profile for authentication. No AWS keys are stored in the code.
+
+**Setup AWS CLI:**
+```bash
+# Configure AWS CLI with your credentials
+aws configure
+
+# Or use a specific profile
+aws configure --profile data-eng
+```
+
+**Required AWS Permissions:**
+- S3: Read/Write access to your data buckets
+- Athena: Query execution permissions
+- IAM: Role assumption (if using EC2/ECS)
+
+### 3. Kafka Setup
+
+```bash
+# Start Zookeeper
+bin/zookeeper-server-start.sh config/zookeeper.properties
+
+# Start Kafka
+bin/kafka-server-start.sh config/server.properties
+```
+
+### 4. Airflow Setup
+
+```bash
+# Initialize Airflow database
+airflow db init
+
+# Create Airflow user
+airflow users create \
+    --username admin \
+    --firstname Admin \
+    --lastname User \
+    --role Admin \
+    --email your_email \
+    --password your_password
+```
+
+## Usage
+
+### Starting the Crawler
+
+1. Ensure Kafka is running:
+```bash
+# Start Zookeeper (if not running as a service)
+bin/zookeeper-server-start.sh config/zookeeper.properties
+
+# Start Kafka server
+bin/kafka-server-start.sh config/server.properties
+```
+
+2. Start the crawler service:
+```bash
+python src/crawler_service.py
+```
+
+The crawler service will:
+- Run as a background process
+- Collect financial data during market hours (9:30 AM - 4:00 PM ET)
+- Respect Alpha Vantage rate limits (25 requests/day)
+- Publish data to Kafka topics: `market.intraday`, `market.sentiment`, `market.indicators`, `market.raw`
+- Log activities to `crawler.log`
+- Handle graceful shutdown on system signals
+
+### Running Data Transformations
+
+1. Configure the transformation job:
+```bash
+# Edit run_transform.sh with your specific paths
+nano run_transform.sh
+```
+
+2. Make the script executable:
+```bash
+chmod +x run_transform.sh
+```
+
+3. Run the transformation job:
+```bash
+./run_transform.sh
+```
+
+The transformation job will:
+- Build the Scala project using SBT
+- Read raw data from S3 using AWS CLI profile credentials
+- Apply transformations using Spark
+- Write processed data back to S3 in Parquet format
+- Handle different data types (intraday, sentiment, indicators)
+
+**AWS Authentication:**
+The `DataTransformerApp` automatically uses your AWS CLI profile credentials through the `DefaultAWSCredentialsProviderChain`. This means:
+- No AWS keys are stored in code or configuration files
+- Credentials are securely managed by AWS CLI
+- Supports IAM roles, temporary credentials, and profile switching
+- Works seamlessly with AWS SSO and other authentication methods
+
+### Data Collection
+
+The crawler collects the following data types:
+- **Intraday Data**: Real-time price data (open, high, low, close, volume)
+- **Sentiment Data**: News sentiment analysis and scores
+- **Technical Indicators**: RSI, MACD, and other technical analysis metrics
+
+### Data Validation
+
+1. Run Great Expectations validation:
+```bash
+python great_expectations/weather_data_suite.py
+```
+
+2. View validation results:
+```bash
+# Check S3 for validation results
+aws s3 ls s3://your-validation-results-bucket/
+```
+
+### Monitoring with Airflow
+
+1. Start Airflow services:
+```bash
+# Start Airflow webserver
+airflow webserver --port 8080
+
+# Start Airflow scheduler
+airflow scheduler
+```
+
+2. Access Airflow UI:
+```
+http://localhost:8080
+```
+
+## Security Features
+
+### Pre-commit Hook
+A pre-commit hook prevents committing sensitive information:
+- API keys
+- Passwords
+- Private keys
+- Email addresses
+- IP addresses
+- Credit card numbers
+- Social security numbers
+
+### Environment Variables
+Sensitive configuration is managed through environment variables:
+```bash
+export ALPHA_VANTAGE_API_KEY=your_api_key
+export KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **S3 Access Denied**: Ensure your AWS CLI profile has S3 permissions
+2. **Kafka Connection Failed**: Check if Kafka is running on the correct port
+3. **Rate Limit Exceeded**: Alpha Vantage free tier has 25 requests/day limit
+4. **Build Failures**: Ensure all dependencies are installed and versions match
+
+### Debug Mode
+Enable debug logging:
+```bash
+export LOG_LEVEL=DEBUG
+python src/crawler_service.py
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests and validation
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details. 

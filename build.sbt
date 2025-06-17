@@ -17,7 +17,11 @@ libraryDependencies ++= Seq(
   "com.typesafe" % "config" % "1.4.1",
   "org.json4s" %% "json4s-jackson" % "3.7.0-M11",
   "org.scalaj" %% "scalaj-http" % "2.4.2",
-  "org.scalatest" %% "scalatest" % "3.2.9" % Test
+  "org.scalatest" %% "scalatest" % "3.2.9" % Test,
+  // AWS S3 support
+  "org.apache.hadoop" % "hadoop-aws" % "3.3.1",
+  "com.amazonaws" % "aws-java-sdk-s3" % "1.12.261",
+  "com.amazonaws" % "aws-java-sdk-core" % "1.12.261"
 )
 
 // Enable Delta Lake SQL commands
