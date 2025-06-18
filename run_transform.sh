@@ -1,5 +1,7 @@
 #!/bin/bash
 
+rm -rf target/
+
 # Add assembly plugin to project/plugins.sbt if it doesn't exist
 if [ ! -f "project/plugins.sbt" ]; then
   mkdir -p project

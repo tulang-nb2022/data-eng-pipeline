@@ -309,16 +309,6 @@ object DataTransformerApp {
   }
 
   def main(args: Array[String]): Unit = {
-    if (args.length < 3) {
-      println("Usage: DataTransformerApp <input_path> <source_type> <output_path>")
-      println("source_type options: eosdis, alphavantage, noaa")
-      System.exit(1)
-    }
-
-    val inputPath = args(0)
-    val sourceType = args(1)
-    val outputPath = args(2)
-
     // Create Spark session with S3 support
     val spark = SparkSession.builder()
       .appName("Data Transformation Job")
@@ -328,6 +318,16 @@ object DataTransformerApp {
       .config("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")
       .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
       .getOrCreate()
+
+    if (args.length < 3) {
+      println("Usage: DataTransformerApp <input_path> <source_type> <output_path>")
+      println("source_type options: eosdis, alphavantage, noaa")
+      System.exit(1)
+    }
+
+    val inputPath = args(0)
+    val sourceType = args(1)
+    val outputPath = args(2)
 
     try {
       // Read data from input path
