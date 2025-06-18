@@ -12,7 +12,7 @@ import scala.collection.mutable
 import com.typesafe.config.{Config, ConfigFactory}
 
 trait DataTransformer {
-  protected val config: Config = ConfigFactory.load("weather_config.yml")
+  protected lazy val config: Config = ConfigFactory.load()
   
   def transform(df: DataFrame): DataFrame
   
