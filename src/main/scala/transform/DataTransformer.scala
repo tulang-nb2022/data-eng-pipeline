@@ -133,93 +133,87 @@ class NOAADataTransformer extends DataTransformer {
   
   override def transform(df: DataFrame): DataFrame = {
     validateData(df)
-    
-    // Extract location metadata
-    val withLocation = df
-      .withColumn("forecast_office", get_json_object(col("properties"), "$.forecastOffice"))
-      .withColumn("grid_id", get_json_object(col("properties"), "$.gridId"))
-      .withColumn("grid_x", get_json_object(col("properties"), "$.gridX").cast(IntegerType))
-      .withColumn("grid_y", get_json_object(col("properties"), "$.gridY").cast(IntegerType))
-      .withColumn("timezone", get_json_object(col("properties"), "$.timeZone"))
-      .withColumn("radar_station", get_json_object(col("properties"), "$.radarStation"))
-      .withColumn("relative_location", get_json_object(col("properties"), "$.relativeLocation"))
-      .withColumn("city", get_json_object(col("relative_location"), "$.properties.city"))
-      .withColumn("state", get_json_object(col("relative_location"), "$.properties.state"))
-      .withColumn("distance_meters", get_json_object(col("relative_location"), "$.properties.distance.value").cast(DoubleType))
-      .withColumn("bearing_degrees", get_json_object(col("relative_location"), "$.properties.bearing.value").cast(DoubleType))
-    
-    // Add forecast URLs for further data enrichment
-    val withUrls = withLocation
-      .withColumn("forecast_url", get_json_object(col("properties"), "$.forecast"))
-      .withColumn("forecast_hourly_url", get_json_object(col("properties"), "$.forecastHourly"))
-      .withColumn("forecast_grid_data_url", get_json_object(col("properties"), "$.forecastGridData"))
-      .withColumn("observation_stations_url", get_json_object(col("properties"), "$.observationStations"))
-    
-    // Add time-based features
-    val withTimeFeatures = withUrls
+
+    // Parse and normalize weather fields
+    val withParsed = df
+      // Normalize temperature to Celsius (if in F)
+      .withColumn("temperature_celsius",
+        when(col("temperature_unit") === "F", (col("temperature") - 32) * 5 / 9)
+         .otherwise(col("temperature")))
+      // Parse wind speed (e.g., "5 to 15 mph" -> 15)
+      .withColumn("wind_speed_max_mph",
+        regexp_extract(col("wind_speed"), "(\\d+)(?: to (\\d+))? mph", 2)
+          .cast(DoubleType)
+          .when(length(regexp_extract(col("wind_speed"), "(\\d+)(?: to (\\d+))? mph", 2)) > 0,
+                regexp_extract(col("wind_speed"), "(\\d+)(?: to (\\d+))? mph", 2).cast(DoubleType))
+          .otherwise(regexp_extract(col("wind_speed"), "(\\d+)", 1).cast(DoubleType))
+      )
+      .withColumn("precipitation_probability_pct", col("precipitation_probability").cast(DoubleType))
+      .withColumn("short_forecast_lower", lower(col("short_forecast")))
+      .withColumn("detailed_forecast_lower", lower(col("detailed_forecast")))
+
+    // Actionable weather warning logic
+    val withWarnings = withParsed
+      .withColumn("weather_warning",
+        when(col("wind_speed_max_mph") >= 30, "Wind Advisory")
+         .when(col("precipitation_probability_pct") >= 70, "Heavy Rain Warning")
+         .when(col("temperature_celsius") >= 35, "Heat Warning")
+         .when(col("temperature_celsius") <= 0, "Freeze Warning")
+         .when(col("short_forecast_lower").contains("flood"), "Flood Watch")
+         .when(col("short_forecast_lower").contains("snow"), "Snow Warning")
+         .otherwise("None")
+      )
+      .withColumn("warning_level",
+        when(col("weather_warning") === "None", "Normal")
+         .when(col("weather_warning").isin("Wind Advisory", "Flood Watch", "Snow Warning"), "Advisory")
+         .when(col("weather_warning").isin("Heavy Rain Warning", "Heat Warning", "Freeze Warning"), "Warning")
+         .otherwise("Unknown")
+      )
+      .withColumn("warning_message",
+        when(col("weather_warning") === "Wind Advisory", concat(lit("High winds expected: "), col("wind_speed")))
+         .when(col("weather_warning") === "Heavy Rain Warning", lit("Heavy rain likely. Take precautions."))
+         .when(col("weather_warning") === "Heat Warning", lit("Extreme heat. Stay hydrated and avoid outdoor activities."))
+         .when(col("weather_warning") === "Freeze Warning", lit("Freezing temperatures expected. Protect plants and pipes."))
+         .when(col("weather_warning") === "Flood Watch", lit("Flooding possible. Stay alert for updates."))
+         .when(col("weather_warning") === "Snow Warning", lit("Snow expected. Prepare for winter conditions."))
+         .otherwise(lit("No significant weather warnings."))
+      )
+
+    // Add time, location, and monitoring features (as before)
+    val withLocation = withWarnings
       .withColumn("processing_timestamp", current_timestamp())
       .withColumn("year", year(col("processing_timestamp")))
       .withColumn("month", month(col("processing_timestamp")))
       .withColumn("day", dayofmonth(col("processing_timestamp")))
       .withColumn("hour", hour(col("processing_timestamp")))
       .withColumn("day_of_week", dayofweek(col("processing_timestamp")))
-      .withColumn("is_weekend", 
-        when(col("day_of_week").isin(1, 7), true).otherwise(false))
-    
-    // Add seasonal features
-    val withSeasonal = withTimeFeatures
+      .withColumn("is_weekend", when(col("day_of_week").isin(1, 7), true).otherwise(false))
       .withColumn("season",
         when(month(col("processing_timestamp")).between(3, 5), "Spring")
           .when(month(col("processing_timestamp")).between(6, 8), "Summer")
           .when(month(col("processing_timestamp")).between(9, 11), "Fall")
           .otherwise("Winter")
       )
-      .withColumn("is_daylight_savings", 
-        when(month(col("processing_timestamp")).between(3, 11), true).otherwise(false))
-    
-    // Add location-based features
-    val withLocationFeatures = withSeasonal
-      .withColumn("is_coastal", 
-        when(col("city").isin("Ketchikan", "Juneau", "Sitka"), true).otherwise(false))
-      .withColumn("elevation_zone",
-        when(col("distance_meters") < 1000, "Low")
-          .when(col("distance_meters") < 2000, "Medium")
-          .otherwise("High"))
-    
-    // Add weather pattern detection
-    val withPatterns = withLocationFeatures
+      .withColumn("is_daylight_savings", when(month(col("processing_timestamp")).between(3, 11), true).otherwise(false))
+      .withColumn("is_coastal", when(col("city").isin("Ketchikan", "Juneau", "Sitka"), true).otherwise(false))
       .withColumn("weather_pattern",
         when(col("season") === "Summer" && col("is_coastal"), "Coastal Summer")
           .when(col("season") === "Winter" && col("is_coastal"), "Coastal Winter")
           .when(col("season") === "Summer", "Inland Summer")
           .when(col("season") === "Winter", "Inland Winter")
           .otherwise("Transitional"))
-    
-    // Add data quality metrics
-    val withQuality = withPatterns
+
+    // Data quality and monitoring (as before)
+    val withQuality = withLocation
       .withColumn("data_completeness_score",
-        when(col("forecast_url").isNotNull && 
-             col("forecast_hourly_url").isNotNull && 
-             col("forecast_grid_data_url").isNotNull, 1.0)
+        when(col("temperature").isNotNull && col("wind_speed").isNotNull && col("precipitation_probability").isNotNull, 1.0)
           .otherwise(0.5))
-      .withColumn("location_accuracy_score",
-        when(col("distance_meters") < 1000, 1.0)
-          .when(col("distance_meters") < 2000, 0.8)
-          .otherwise(0.6))
-      .withColumn("overall_quality_score",
-        (col("data_completeness_score") + col("location_accuracy_score")) / 2)
-    
-    // Add real-time monitoring features
-    val withMonitoring = withQuality
-      .withColumn("data_freshness_minutes",
-        unix_timestamp(current_timestamp()) - unix_timestamp(col("processing_timestamp")))
-      .withColumn("is_data_stale",
-        when(col("data_freshness_minutes") > 30, true).otherwise(false))
-      .withColumn("needs_attention",
-        when(col("is_data_stale") || col("overall_quality_score") < 0.7, true)
-          .otherwise(false))
-    
-    withMonitoring
+      .withColumn("overall_quality_score", col("data_completeness_score"))
+      .withColumn("data_freshness_minutes", unix_timestamp(current_timestamp()) - unix_timestamp(col("processing_timestamp")))
+      .withColumn("is_data_stale", when(col("data_freshness_minutes") > 30, true).otherwise(false))
+      .withColumn("needs_attention", when(col("is_data_stale") || col("overall_quality_score") < 0.7, true).otherwise(false))
+
+    withQuality
   }
 
   def streamTransform(

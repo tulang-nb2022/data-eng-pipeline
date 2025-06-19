@@ -32,8 +32,8 @@ $SPARK_HOME/bin/spark-submit \
   --executor-memory 2g \
   --packages org.apache.hadoop:hadoop-aws:3.3.1,com.amazonaws:aws-java-sdk-s3:1.12.261 \
   target/scala-2.12/data-engineering-project-assembly-0.1.0.jar \
-  "s3://data-eng-bucket-345/weather-forecast/raw" \
+  "s3a://data-eng-bucket-345/weather-forecast/raw" \
   "noaa" \
-  "s3://data-eng-bucket-345/weather-forecast/processed"
+  "s3a://data-eng-bucket-345/weather-forecast/processed"
 
 echo "Transformation complete!" 
