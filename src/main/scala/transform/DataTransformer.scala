@@ -311,6 +311,9 @@ object DataTransformerApp {
       .config("spark.hadoop.fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
       .config("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")
       .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
+      .config("spark.hadoop.fs.s3a.connection.establish.timeout", "60000")
+      .config("spark.hadoop.fs.s3a.connection.timeout", "60000")
+      .config("spark.hadoop.fs.s3a.connection.maximum", "100")
       .getOrCreate()
 
     //debugging
