@@ -313,6 +313,9 @@ object DataTransformerApp {
       .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
       .getOrCreate()
 
+    //debugging
+    spark.conf.getAll.foreach { case (k, v) => println(s"$k = $v") }
+
     if (args.length < 3) {
       println("Usage: DataTransformerApp <input_path> <source_type> <output_path>")
       println("source_type options: eosdis, alphavantage, noaa")
