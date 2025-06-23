@@ -1,13 +1,16 @@
 name := "data-engineering-project"
 version := "0.1.0"
 scalaVersion := "2.12.15"
+mainClass in assembly := Some("transform.DataTransformerApp")
 
 // Add assembly plugin
 assembly / assemblyMergeStrategy := {
-  case PathList("META-INF", xs @ _*) => MergeStrategy.discard
-  case PathList("yarn-default.xml") => MergeStrategy.discard
-  case x if x.endsWith("yarn-default.xml") => MergeStrategy.discard
-  case x => MergeStrategy.first
+  case PathList("META-INF", _*)             => MergeStrategy.discard
+  case PathList("reference.conf")           => MergeStrategy.concat
+  case PathList("application.conf")         => MergeStrategy.concat
+  case PathList("yarn-default.xml")         => MergeStrategy.discard
+  case x if x.endsWith("yarn-default.xml")  => MergeStrategy.discard
+  case x                                    => MergeStrategy.first
 }
 
 libraryDependencies ++= Seq(
