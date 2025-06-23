@@ -24,19 +24,13 @@ export SPARK_HOME=/opt/spark
 
 # Run the transformation job
 $SPARK_HOME/bin/spark-submit \
-  --conf spark.hadoop.fs.s3a.connection.establish.timeout=60000 \
-  --conf spark.hadoop.fs.s3a.connection.timeout=60000 \
-  --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
-  --conf spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.DefaultAWSCredentialsProviderChain \
-  --conf spark.hadoop.fs.s3a.endpoint=s3.amazonaws.com \
   --class transform.DataTransformerApp \
   --master local[*] \
   --driver-memory 1g \
   --executor-memory 2g \
-  --packages org.apache.hadoop:hadoop-aws:3.3.1,com.amazonaws:aws-java-sdk-s3:1.12.261 \
   target/scala-2.12/data-engineering-project-assembly-0.1.0.jar \
-  "s3a://data-eng-bucket-345/weather-forecast/raw" \
+  "data/raw" \
   "noaa" \
-  "s3a://data-eng-bucket-345/weather-forecast/processed"
+  "data/processed"
 
 echo "Transformation complete!" 
