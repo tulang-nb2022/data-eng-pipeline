@@ -290,14 +290,13 @@ class NOAADataTransformer extends DataTransformer {
       .start()
   }
 
-  def streamTransformWithS3Upload(
+  // Streaming transform: write Parquet locally only (no S3 upload)
+  def streamTransformLocal(
     inputStream: DataFrame,
     checkpointLocation: String,
     localOutputPath: String,
-    s3OutputPath: String,
     triggerInterval: String = "1 minute"
   ): StreamingQuery = {
-    // Add streaming query listener for monitoring
     val listener = new StreamingQueryListener {
       override def onQueryStarted(event: QueryStartedEvent): Unit = {
         println(s"Query started: ${event.id}")
@@ -314,23 +313,13 @@ class NOAADataTransformer extends DataTransformer {
     }
     inputStream.sparkSession.streams.addListener(listener)
 
-    // Use foreachBatch to write locally and upload to S3
     val query = inputStream.transform(transform).writeStream
       .outputMode(OutputMode.Append)
       .option("checkpointLocation", checkpointLocation)
+      .option("path", localOutputPath)
+      .format("parquet")
+      .partitionBy("year", "month", "day")
       .trigger(Trigger.ProcessingTime(triggerInterval))
-      .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
-        val batchPath = s"$localOutputPath/batch_$batchId"
-        batchDF.write.mode("overwrite").parquet(batchPath)
-        // Upload to S3 using AWS CLI (ensure AWS CLI is installed and configured)
-        val s3BatchPath = s"$s3OutputPath/batch_$batchId"
-        val cmd = s"aws s3 cp --recursive $batchPath $s3BatchPath"
-        import sys.process._
-        val exitCode = cmd.!
-        if (exitCode != 0) {
-          throw new RuntimeException(s"Failed to upload batch $batchId to S3")
-        }
-      }
       .start()
     query.awaitTermination()
     query
@@ -349,24 +338,17 @@ object DataTransformerApp {
   }
 
   def main(args: Array[String]): Unit = {
-    // Create Spark session with S3 support
+    // Create Spark session (no S3 configs needed for local output)
     val spark = SparkSession.builder()
       .appName("Data Transformation Job")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
-      .config("spark.hadoop.fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-      .config("spark.hadoop.fs.s3a.endpoint", "s3.amazonaws.com")
-      .config("spark.hadoop.fs.s3a.aws.credentials.provider", "com.amazonaws.auth.DefaultAWSCredentialsProviderChain")
-      .config("spark.hadoop.fs.s3a.connection.establish.timeout", "60000")
-      .config("spark.hadoop.fs.s3a.connection.timeout", "60000")
-      .config("spark.hadoop.fs.s3a.connection.maximum", "100")
       .getOrCreate()
 
-    //debugging
     spark.conf.getAll.foreach { case (k, v) => println(s"$k = $v") }
 
     if (args.length < 3) {
-      println("Usage: DataTransformerApp <input_path> <source_type> <output_path> [local_tmp_path] [s3_output_path]")
+      println("Usage: DataTransformerApp <input_path> <source_type> <output_path> [checkpoint_path]")
       println("source_type options: eosdis, alphavantage, noaa")
       System.exit(1)
     }
@@ -374,28 +356,23 @@ object DataTransformerApp {
     val inputPath = args(0)
     val sourceType = args(1)
     val outputPath = args(2)
-    val localTmpPath = if (args.length > 3) args(3) else "/tmp/spark_batches"
-    val s3OutputPath = if (args.length > 4) args(4) else outputPath
+    val checkpointPath = if (args.length > 3) args(3) else "data/checkpoint"
 
     try {
-      // Read data from input path
       val inputDF = spark.read
         .option("multiline", "true")
         .json(inputPath)
 
       println(s"Read ${inputDF.count()} records from $inputPath")
 
-      // Get appropriate transformer
       val transformer = DataTransformerApp(sourceType)(spark)
 
-      // If streaming, use foreachBatch for S3 upload
       if (sourceType.toLowerCase == "noaa") {
-        println("Starting streaming transform with S3 upload via foreachBatch...")
+        println("Starting streaming transform to local Parquet directory (data/)...")
         val streamingQuery = transformer.asInstanceOf[NOAADataTransformer]
-          .streamTransformWithS3Upload(inputDF, s"$localTmpPath/checkpoint", localTmpPath, s3OutputPath)
+          .streamTransformLocal(inputDF, checkpointPath, outputPath)
         streamingQuery.awaitTermination()
       } else {
-        // Batch mode as before
         val transformedDF = transformer.transform(inputDF)
         println(s"Transformed data has ${transformedDF.count()} records")
         transformedDF.write
