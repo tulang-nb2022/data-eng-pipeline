@@ -289,6 +289,52 @@ class NOAADataTransformer extends DataTransformer {
       .trigger(Trigger.ProcessingTime("1 minute"))
       .start()
   }
+
+  def streamTransformWithS3Upload(
+    inputStream: DataFrame,
+    checkpointLocation: String,
+    localOutputPath: String,
+    s3OutputPath: String,
+    triggerInterval: String = "1 minute"
+  ): StreamingQuery = {
+    // Add streaming query listener for monitoring
+    val listener = new StreamingQueryListener {
+      override def onQueryStarted(event: QueryStartedEvent): Unit = {
+        println(s"Query started: ${event.id}")
+      }
+      override def onQueryProgress(event: QueryProgressEvent): Unit = {
+        val progress = event.progress
+        println(s"Processed ${progress.numInputRows} rows in ${progress.durationMs}ms")
+        println(s"Input rate: ${progress.inputRowsPerSecond} rows/second")
+        println(s"Processing rate: ${progress.processedRowsPerSecond} rows/second")
+      }
+      override def onQueryTerminated(event: QueryTerminatedEvent): Unit = {
+        println(s"Query terminated: ${event.id}")
+      }
+    }
+    inputStream.sparkSession.streams.addListener(listener)
+
+    // Use foreachBatch to write locally and upload to S3
+    val query = inputStream.transform(transform).writeStream
+      .outputMode(OutputMode.Append)
+      .option("checkpointLocation", checkpointLocation)
+      .trigger(Trigger.ProcessingTime(triggerInterval))
+      .foreachBatch { (batchDF: DataFrame, batchId: Long) =>
+        val batchPath = s"$localOutputPath/batch_$batchId"
+        batchDF.write.mode("overwrite").parquet(batchPath)
+        // Upload to S3 using AWS CLI (ensure AWS CLI is installed and configured)
+        val s3BatchPath = s"$s3OutputPath/batch_$batchId"
+        val cmd = s"aws s3 cp --recursive $batchPath $s3BatchPath"
+        import sys.process._
+        val exitCode = cmd.!
+        if (exitCode != 0) {
+          throw new RuntimeException(s"Failed to upload batch $batchId to S3")
+        }
+      }
+      .start()
+    query.awaitTermination()
+    query
+  }
 }
 
 // Separate object for the main method
@@ -320,7 +366,7 @@ object DataTransformerApp {
     spark.conf.getAll.foreach { case (k, v) => println(s"$k = $v") }
 
     if (args.length < 3) {
-      println("Usage: DataTransformerApp <input_path> <source_type> <output_path>")
+      println("Usage: DataTransformerApp <input_path> <source_type> <output_path> [local_tmp_path] [s3_output_path]")
       println("source_type options: eosdis, alphavantage, noaa")
       System.exit(1)
     }
@@ -328,6 +374,8 @@ object DataTransformerApp {
     val inputPath = args(0)
     val sourceType = args(1)
     val outputPath = args(2)
+    val localTmpPath = if (args.length > 3) args(3) else "/tmp/spark_batches"
+    val s3OutputPath = if (args.length > 4) args(4) else outputPath
 
     try {
       // Read data from input path
@@ -340,19 +388,22 @@ object DataTransformerApp {
       // Get appropriate transformer
       val transformer = DataTransformerApp(sourceType)(spark)
 
-      // Transform data
-      val transformedDF = transformer.transform(inputDF)
-
-      println(s"Transformed data has ${transformedDF.count()} records")
-
-      // Write transformed data to output path
-      transformedDF.write
-        .mode("overwrite")
-        .partitionBy("year", "month", "day")
-        .parquet(outputPath)
-
-      println(s"Successfully wrote transformed data to $outputPath")
-
+      // If streaming, use foreachBatch for S3 upload
+      if (sourceType.toLowerCase == "noaa") {
+        println("Starting streaming transform with S3 upload via foreachBatch...")
+        val streamingQuery = transformer.asInstanceOf[NOAADataTransformer]
+          .streamTransformWithS3Upload(inputDF, s"$localTmpPath/checkpoint", localTmpPath, s3OutputPath)
+        streamingQuery.awaitTermination()
+      } else {
+        // Batch mode as before
+        val transformedDF = transformer.transform(inputDF)
+        println(s"Transformed data has ${transformedDF.count()} records")
+        transformedDF.write
+          .mode("overwrite")
+          .partitionBy("year", "month", "day")
+          .parquet(outputPath)
+        println(s"Successfully wrote transformed data to $outputPath")
+      }
     } catch {
       case e: Exception =>
         println(s"Error during transformation: ${e.getMessage}")
