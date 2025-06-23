@@ -1,7 +1,5 @@
 #!/bin/bash
 
-rm -rf target/
-
 # Add assembly plugin to project/plugins.sbt if it doesn't exist
 if [ ! -f "project/plugins.sbt" ]; then
   mkdir -p project
@@ -35,8 +33,8 @@ $SPARK_HOME/bin/spark-submit \
   --master local[*] \
   --driver-memory 1g \
   --executor-memory 2g \
-  --jars $SPARK_HOME/jars/org.apache.hadoop_hadoop-aws-3.3.1.jar,\
-$SPARK_HOME/jars/com.amazonaws_aws-java-sdk-bundle-1.11.901.jar \
+  --jars /opt/spark/jars/hadoop-aws-3.3.1.jar,\
+  /opt/spark/jars/aws-java-sdk-bundle-1.11.901.jar \
   target/scala-2.12/data-engineering-project-assembly-0.1.0.jar \
   "s3a://data-eng-bucket-345/weather-forecast/raw" \
   "noaa" \

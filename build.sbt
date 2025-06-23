@@ -5,6 +5,8 @@ scalaVersion := "2.12.15"
 // Add assembly plugin
 assembly / assemblyMergeStrategy := {
   case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case PathList("yarn-default.xml") => MergeStrategy.discard
+  case x if x.endsWith("yarn-default.xml") => MergeStrategy.discard
   case x => MergeStrategy.first
 }
 
