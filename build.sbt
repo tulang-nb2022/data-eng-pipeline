@@ -1,7 +1,13 @@
 name := "data-engineering-project"
 version := "0.1.0"
 scalaVersion := "2.12.15"
-dependencyOverrides += "org.scala-lang" % "scala-library" % "2.12.15"
+
+// Comprehensive dependency overrides to ensure Scala version consistency
+dependencyOverrides ++= Seq(
+  "org.scala-lang" % "scala-library" % "2.12.15",
+  "org.scala-lang" % "scala-reflect" % "2.12.15",
+  "org.scala-lang" % "scala-compiler" % "2.12.15"
+)
 
 // Add assembly plugin
 assembly / assemblyMergeStrategy := {
