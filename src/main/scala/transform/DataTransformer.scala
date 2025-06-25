@@ -343,6 +343,8 @@ object DataTransformerApp {
       .appName("Data Transformation Job")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+      .config("spark.sql.json.allowBackslashEscapingAnyCharacter", "true")
+      .config("spark.sql.json.ignoreNullFields", "false")
       .getOrCreate()
 
     spark.conf.getAll.foreach { case (k, v) => println(s"$k = $v") }
@@ -358,22 +360,65 @@ object DataTransformerApp {
     val outputPath = args(2)
     val checkpointPath = if (args.length > 3) args(3) else "data/checkpoint"
 
-    try {
-      val inputDF = spark.read
-        .option("multiline", "true")
-        .json(inputPath)
+    def readJsonSafely(path: String): DataFrame = {
+      try {
+        // First attempt: Try reading with standard options
+        val df = spark.read
+          .option("multiline", "true")
+          .option("mode", "PERMISSIVE")
+          .option("columnNameOfCorruptRecord", "_corrupt_record")
+          .option("timestampFormat", "yyyy-MM-dd HH:mm:ss")
+          .option("dateFormat", "yyyy-MM-dd")
+          .json(path)
+        
+        // Check if we have valid data (not just corrupt records)
+        val validColumns = df.columns.filterNot(_ == "_corrupt_record")
+        if (validColumns.isEmpty) {
+          throw new Exception("No valid columns found in JSON data")
+        }
+        
+        // Filter out corrupt records
+        val cleanDF = df.filter(col("_corrupt_record").isNull)
+        
+        // Drop corrupt record column if it exists
+        if (cleanDF.columns.contains("_corrupt_record")) {
+          cleanDF.drop("_corrupt_record")
+        } else {
+          cleanDF
+        }
+      } catch {
+        case e: Exception =>
+          println(s"Standard JSON reading failed: ${e.getMessage}")
+          println("Attempting alternative JSON reading approach...")
+          
+          // Fallback: Try reading with more permissive options
+          val fallbackDF = spark.read
+            .option("multiline", "true")
+            .option("mode", "DROPMALFORMED")  // Drop malformed records instead of keeping them
+            .option("timestampFormat", "yyyy-MM-dd HH:mm:ss")
+            .option("dateFormat", "yyyy-MM-dd")
+            .json(path)
+          
+          println(s"Fallback approach successful. Found ${fallbackDF.count()} records")
+          fallbackDF
+      }
+    }
 
-      println(s"Read ${inputDF.count()} records from $inputPath")
+    try {
+      val finalDF = readJsonSafely(inputPath)
+      
+      println(s"Read ${finalDF.count()} valid records from $inputPath")
+      println(s"Schema: ${finalDF.schema.treeString}")
 
       val transformer = DataTransformerApp(sourceType)(spark)
 
       if (sourceType.toLowerCase == "noaa") {
         println("Starting streaming transform to local Parquet directory (data/)...")
         val streamingQuery = transformer.asInstanceOf[NOAADataTransformer]
-          .streamTransformLocal(inputDF, checkpointPath, outputPath)
+          .streamTransformLocal(finalDF, checkpointPath, outputPath)
         streamingQuery.awaitTermination()
       } else {
-        val transformedDF = transformer.transform(inputDF)
+        val transformedDF = transformer.transform(finalDF)
         println(s"Transformed data has ${transformedDF.count()} records")
         transformedDF.write
           .mode("overwrite")
