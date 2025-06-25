@@ -1,12 +1,13 @@
-# Financial Data Pipeline
+# Real-Time Data Pipeline
 
-A robust data pipeline for collecting and processing financial market data using Alpha Vantage API, Kafka, and AWS services. This project focuses on real-time financial data collection, processing, and analysis.
+A robust real-time data pipeline for collecting and processing financial market data and weather data using Kafka streaming, Spark, and AWS services. This project focuses on real-time data collection, processing, and analysis with streaming capabilities.
 
 ## Features
 
-- Real-time financial data collection from Alpha Vantage API
-- Rate-limited API requests to comply with Alpha Vantage free tier limits (25 requests/day)
-- Kafka integration for data streaming with multiple topics
+- Real-time data collection from Alpha Vantage API (financial) and NOAA (weather)
+- Rate-limited API requests to comply with API limits
+- Kafka integration for real-time data streaming with multiple topics
+- Spark Streaming for real-time data transformation
 - Comprehensive data transformation and enrichment
 - Error handling and logging with centralized error management
 - Background crawler service with graceful shutdown
@@ -20,6 +21,8 @@ A robust data pipeline for collecting and processing financial market data using
 
 - Python 3.8+
 - Apache Kafka
+- Apache Spark 3.2.0
+- Scala 2.12.15
 - Alpha Vantage API key
 - AWS Account with:
   - S3 bucket
@@ -56,23 +59,33 @@ Edit `.env` with your configuration:
 - Configure AWS credentials
 - Set Kafka bootstrap servers
 
-5. Set up AWS resources:
+5. Set up Kafka:
+```bash
+# Using Docker (recommended)
+docker run -d --name kafka -p 9092:9092 apache/kafka:2.13-3.2.0
+
+# Create topics
+docker exec kafka kafka-topics.sh --create --topic weather-forecast --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+docker exec kafka kafka-topics.sh --create --topic financial-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+```
+
+6. Set up AWS resources:
 ```bash
 # Create S3 bucket
-aws s3 mb s3://your-financial-data-bucket
+aws s3 mb s3://your-data-bucket
 
 # Create Athena database
 aws athena start-query-execution \
-    --query-string "CREATE DATABASE IF NOT EXISTS financial_analytics" \
+    --query-string "CREATE DATABASE IF NOT EXISTS data_analytics" \
     --result-configuration "OutputLocation=s3://your-bucket/athena-results/"
 ```
 
-6. Initialize Great Expectations:
+7. Initialize Great Expectations:
 ```bash
 great_expectations init
 ```
 
-7. Set up Airflow:
+8. Set up Airflow:
 ```bash
 # Initialize Airflow
 airflow db init
@@ -93,11 +106,8 @@ airflow users create \
 
 1. Ensure Kafka is running:
 ```bash
-# Start Zookeeper (if not running as a service)
-bin/zookeeper-server-start.sh config/zookeeper.properties
-
-# Start Kafka server
-bin/kafka-server-start.sh config/server.properties
+# Check if Kafka is running
+nc -z localhost 9092
 ```
 
 2. Start the crawler service:
@@ -109,39 +119,55 @@ The crawler service will:
 - Run as a background process
 - Collect financial data during market hours (9:30 AM - 4:00 PM ET)
 - Respect Alpha Vantage rate limits (25 requests/day)
-- Publish data to Kafka topics: `market.intraday`, `market.sentiment`, `market.indicators`, `market.raw`
+- Publish data to Kafka topics: `financial-data`, `weather-forecast`
 - Log activities to `crawler.log`
 - Handle graceful shutdown on system signals
 
-### Running Data Transformations
+### Running Real-Time Data Transformations
 
-1. Configure the transformation job:
-```bash
-# Edit run_transform.sh with your specific paths
-nano run_transform.sh
-```
-
-2. Make the script executable:
+1. Make the script executable:
 ```bash
 chmod +x run_transform.sh
 ```
 
-3. Run the transformation job:
+2. Run the streaming transformation job:
 ```bash
-./run_transform.sh
+# For weather data
+./run_transform.sh weather-forecast noaa data/processed
+
+# For financial data
+./run_transform.sh financial-data alphavantage data/processed
+
+# For EOSDIS data
+./run_transform.sh eosdis-data eosdis data/processed
 ```
 
-The transformation job will:
+The streaming transformation job will:
 - Build the Scala project using SBT
-- Read raw data from S3
-- Apply transformations using Spark
-- Write processed data back to S3 in Parquet format
-- Handle different data types (intraday, sentiment, indicators)
+- Read real-time data from Kafka topics
+- Apply transformations using Spark Streaming
+- Write processed data to local storage in Parquet format
+- Handle different data types with automatic detection
+
+### Testing the Kafka Streaming Setup
+
+1. Test the complete pipeline:
+```bash
+chmod +x scripts/test_kafka_streaming.sh
+./scripts/test_kafka_streaming.sh
+```
+
+2. This will:
+- Check if Kafka is running
+- Create the weather-forecast topic
+- Send test weather data messages
+- Provide instructions to run the transformation
 
 ### Data Collection
 
 The crawler collects the following data types:
-- **Intraday Data**: Real-time price data (open, high, low, close, volume)
+- **Financial Data**: Real-time price data (open, high, low, close, volume)
+- **Weather Data**: Temperature, wind speed, precipitation probability
 - **Sentiment Data**: News sentiment analysis and scores
 - **Technical Indicators**: RSI, MACD, and other technical analysis metrics
 
@@ -177,7 +203,7 @@ airflow scheduler
 ### Querying Data with Athena
 
 1. Access Athena console in AWS
-2. Select the `financial_analytics` database
+2. Select the `data_analytics` database
 3. Run example queries:
 ```sql
 -- Check data quality scores
@@ -442,7 +468,7 @@ chmod +x run_transform.sh
 
 The transformation job will:
 - Build the Scala project using SBT
-- Read raw data from S3 using AWS CLI profile credentials
+- Read raw data from S3
 - Apply transformations using Spark
 - Write processed data back to S3 in Parquet format
 - Handle different data types (intraday, sentiment, indicators)
@@ -478,10 +504,7 @@ aws s3 ls s3://your-validation-results-bucket/
 
 1. Start Airflow services:
 ```bash
-# Start Airflow webserver
-airflow webserver --port 8080
-
-# Start Airflow scheduler
+airflow webserver -p 8080
 airflow scheduler
 ```
 

@@ -10,6 +10,7 @@ import org.apache.spark.sql.streaming.StreamingQueryListener.{QueryStartedEvent,
 import java.time.{Duration, Instant}
 import scala.collection.mutable
 import com.typesafe.config.{Config, ConfigFactory}
+import org.apache.spark.sql.streaming.DataStreamReader
 
 trait DataTransformer {
   protected lazy val config: Config = ConfigFactory.load()
@@ -338,7 +339,7 @@ object DataTransformerApp {
   }
 
   def main(args: Array[String]): Unit = {
-    // Create Spark session (no S3 configs needed for local output)
+    // Create Spark session with Kafka support
     val spark = SparkSession.builder()
       .appName("Data Transformation Job")
       .config("spark.sql.adaptive.enabled", "true")
@@ -350,82 +351,133 @@ object DataTransformerApp {
     spark.conf.getAll.foreach { case (k, v) => println(s"$k = $v") }
 
     if (args.length < 3) {
-      println("Usage: DataTransformerApp <input_path> <source_type> <output_path> [checkpoint_path]")
+      println("Usage: DataTransformerApp <kafka_topic> <source_type> <output_path> [checkpoint_path]")
       println("source_type options: eosdis, alphavantage, noaa")
       System.exit(1)
     }
 
-    val inputPath = args(0)
+    val kafkaTopic = args(0)
     val sourceType = args(1)
     val outputPath = args(2)
     val checkpointPath = if (args.length > 3) args(3) else "data/checkpoint"
 
-    def readJsonSafely(path: String): DataFrame = {
-      try {
-        // First attempt: Try reading with standard options
-        val df = spark.read
-          .option("multiline", "true")
-          .option("mode", "PERMISSIVE")
-          .option("columnNameOfCorruptRecord", "_corrupt_record")
-          .option("timestampFormat", "yyyy-MM-dd HH:mm:ss")
-          .option("dateFormat", "yyyy-MM-dd")
-          .json(path)
-        
-        // Check if we have valid data (not just corrupt records)
-        val validColumns = df.columns.filterNot(_ == "_corrupt_record")
-        if (validColumns.isEmpty) {
-          throw new Exception("No valid columns found in JSON data")
-        }
-        
-        // Filter out corrupt records
-        val cleanDF = df.filter(col("_corrupt_record").isNull)
-        
-        // Drop corrupt record column if it exists
-        if (cleanDF.columns.contains("_corrupt_record")) {
-          cleanDF.drop("_corrupt_record")
-        } else {
-          cleanDF
-        }
-      } catch {
-        case e: Exception =>
-          println(s"Standard JSON reading failed: ${e.getMessage}")
-          println("Attempting alternative JSON reading approach...")
-          
-          // Fallback: Try reading with more permissive options
-          val fallbackDF = spark.read
-            .option("multiline", "true")
-            .option("mode", "DROPMALFORMED")  // Drop malformed records instead of keeping them
-            .option("timestampFormat", "yyyy-MM-dd HH:mm:ss")
-            .option("dateFormat", "yyyy-MM-dd")
-            .json(path)
-          
-          println(s"Fallback approach successful. Found ${fallbackDF.count()} records")
-          fallbackDF
-      }
+    def createKafkaStream(topic: String): DataFrame = {
+      println(s"Creating Kafka stream from topic: $topic")
+      
+      val kafkaStream = spark.readStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", "localhost:9092")
+        .option("subscribe", topic)
+        .option("startingOffsets", "earliest")
+        .option("failOnDataLoss", "false")
+        .load()
+
+      // Parse the JSON from Kafka value with schema inference
+      val parsedStream = kafkaStream
+        .selectExpr("CAST(value AS STRING) as json_data")
+        .filter(col("json_data").isNotNull && length(col("json_data")) > 0)
+        .select(from_json(col("json_data"), 
+          // Use a flexible schema that can handle various JSON structures
+          StructType(Seq(
+            StructField("temperature", DoubleType, true),
+            StructField("wind_speed", StringType, true),
+            StructField("precipitation_probability", IntegerType, true),
+            StructField("city", StringType, true),
+            StructField("grid_id", StringType, true),
+            StructField("temperature_unit", StringType, true),
+            StructField("short_forecast", StringType, true),
+            StructField("detailed_forecast", StringType, true),
+            // Alpha Vantage fields
+            StructField("open", DoubleType, true),
+            StructField("high", DoubleType, true),
+            StructField("low", DoubleType, true),
+            StructField("close", DoubleType, true),
+            StructField("volume", LongType, true),
+            StructField("adjusted_close", DoubleType, true),
+            // EOSDIS fields
+            StructField("score", DoubleType, true),
+            StructField("fields", StringType, true),
+            // Generic fields
+            StructField("timestamp", StringType, true),
+            StructField("date", StringType, true)
+          ))
+        ).as("data"))
+        .select("data.*")
+        .filter(col("*").isNotNull) // Filter out completely null rows
+
+      parsedStream
+    }
+
+    def detectDataType(df: DataFrame): String = {
+      val columns = df.columns.toSet
+      
+      // Check for NOAA weather data columns
+      val noaaColumns = Set("temperature", "wind_speed", "precipitation_probability", "city", "grid_id")
+      val noaaMatch = noaaColumns.intersect(columns).size
+      
+      // Check for Alpha Vantage financial data columns
+      val alphaColumns = Set("open", "high", "low", "close", "volume", "adjusted_close", "dividend_amount")
+      val alphaMatch = alphaColumns.intersect(columns).size
+      
+      // Check for EOSDIS data columns
+      val eosdisColumns = Set("score", "fields", "category_hierarchy")
+      val eosdisMatch = eosdisColumns.intersect(columns).size
+      
+      println(s"Data type detection:")
+      println(s"  Available columns: ${columns.mkString(", ")}")
+      println(s"  NOAA weather match: $noaaMatch/${noaaColumns.size}")
+      println(s"  Alpha Vantage match: $alphaMatch/${alphaColumns.size}")
+      println(s"  EOSDIS match: $eosdisMatch/${eosdisColumns.size}")
+      
+      if (noaaMatch >= 3) "noaa"
+      else if (alphaMatch >= 3) "alphavantage"
+      else if (eosdisMatch >= 2) "eosdis"
+      else "unknown"
     }
 
     try {
-      val finalDF = readJsonSafely(inputPath)
-      
-      println(s"Read ${finalDF.count()} valid records from $inputPath")
-      println(s"Schema: ${finalDF.schema.treeString}")
+      println(s"Starting Kafka streaming job...")
+      println(s"Topic: $kafkaTopic")
+      println(s"Source type: $sourceType")
+      println(s"Output path: $outputPath")
+      println(s"Checkpoint path: $checkpointPath")
 
       val transformer = DataTransformerApp(sourceType)(spark)
 
       if (sourceType.toLowerCase == "noaa") {
-        println("Starting streaming transform to local Parquet directory (data/)...")
+        println("Starting NOAA weather data streaming transform...")
+        
+        // Create Kafka stream
+        val kafkaStream = createKafkaStream(kafkaTopic)
+        
+        // Start streaming transformation
         val streamingQuery = transformer.asInstanceOf[NOAADataTransformer]
-          .streamTransformLocal(finalDF, checkpointPath, outputPath)
+          .streamTransformLocal(kafkaStream, checkpointPath, outputPath)
+        
         streamingQuery.awaitTermination()
       } else {
-        val transformedDF = transformer.transform(finalDF)
-        println(s"Transformed data has ${transformedDF.count()} records")
-        transformedDF.write
-          .mode("overwrite")
+        println(s"Starting $sourceType data streaming transform...")
+        
+        // Create Kafka stream
+        val kafkaStream = createKafkaStream(kafkaTopic)
+        
+        // For non-NOAA data, use the standard streaming approach
+        val transformedStream = kafkaStream.transform(transformer.transform)
+        
+        val query = transformedStream.writeStream
+          .format("parquet")
+          .outputMode(OutputMode.Append)
+          .option("checkpointLocation", checkpointPath)
+          .option("path", outputPath)
           .partitionBy("year", "month", "day")
-          .parquet(outputPath)
-        println(s"Successfully wrote transformed data to $outputPath")
+          .trigger(Trigger.ProcessingTime("1 minute"))
+          .start()
+        
+        query.awaitTermination()
       }
+      
+      println("Streaming job completed successfully!")
+      
     } catch {
       case e: Exception =>
         println(s"Error during transformation: ${e.getMessage}")
