@@ -415,33 +415,6 @@ object DataTransformerApp {
       parsedStream
     }
 
-    def detectDataType(df: DataFrame): String = {
-      val columns = df.columns.toSet
-      
-      // Check for NOAA weather data columns
-      val noaaColumns = Set("temperature", "wind_speed", "precipitation_probability", "city", "grid_id")
-      val noaaMatch = noaaColumns.intersect(columns).size
-      
-      // Check for Alpha Vantage financial data columns
-      val alphaColumns = Set("open", "high", "low", "close", "volume", "adjusted_close", "dividend_amount")
-      val alphaMatch = alphaColumns.intersect(columns).size
-      
-      // Check for EOSDIS data columns
-      val eosdisColumns = Set("score", "fields", "category_hierarchy")
-      val eosdisMatch = eosdisColumns.intersect(columns).size
-      
-      println(s"Data type detection:")
-      println(s"  Available columns: ${columns.mkString(", ")}")
-      println(s"  NOAA weather match: $noaaMatch/${noaaColumns.size}")
-      println(s"  Alpha Vantage match: $alphaMatch/${alphaColumns.size}")
-      println(s"  EOSDIS match: $eosdisMatch/${eosdisColumns.size}")
-      
-      if (noaaMatch >= 3) "noaa"
-      else if (alphaMatch >= 3) "alphavantage"
-      else if (eosdisMatch >= 2) "eosdis"
-      else "unknown"
-    }
-
     try {
       println(s"Starting Kafka streaming job...")
       println(s"Topic: $kafkaTopic")
