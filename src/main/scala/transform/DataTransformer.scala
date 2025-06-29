@@ -17,6 +17,13 @@ trait DataTransformer {
   
   def transform(df: DataFrame): DataFrame
   
+  // Streaming-compatible transform method
+  def streamingTransform(df: DataFrame): DataFrame = {
+    // Default implementation just calls the regular transform
+    // Override in subclasses if needed
+    transform(df)
+  }
+  
   def validateData(df: DataFrame): Unit = {
     // Check for null values
     val nullCounts = df.columns.map(c => (c, df.filter(col(c).isNull).count()))
@@ -441,8 +448,8 @@ object DataTransformerApp {
         // Create Kafka stream
         val kafkaStream = createKafkaStream(kafkaTopic)
         
-        // For non-NOAA data, use the standard streaming approach
-        val transformedStream = kafkaStream.transform(transformer.transform)
+        // For non-NOAA data, use streaming approach with the transformer's streamingTransform method
+        val transformedStream = kafkaStream.transform(transformer.streamingTransform)
         
         val query = transformedStream.writeStream
           .format("parquet")
