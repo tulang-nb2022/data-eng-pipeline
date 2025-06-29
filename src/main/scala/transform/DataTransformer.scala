@@ -403,7 +403,14 @@ object DataTransformerApp {
           ))
         ).as("data"))
         .select("data.*")
-        .filter(col("*").isNotNull) // Filter out completely null rows
+        .filter(
+          coalesce(
+            col("temperature"), col("wind_speed"), col("precipitation_probability"),
+            col("city"), col("grid_id"), col("open"), col("high"), col("low"),
+            col("close"), col("volume"), col("score"), col("fields"),
+            col("timestamp"), col("date")
+          ).isNotNull
+        ) // Filter out completely null rows
 
       parsedStream
     }
