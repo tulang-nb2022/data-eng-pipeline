@@ -29,13 +29,13 @@ class FinancialDataTransformer(DataTransformer):
         for symbol, symbol_data in data.items():
             # Transform intraday data
             intraday_df = self._transform_intraday(symbol_data['intraday'])
-            
+        
             # Transform sentiment data
             sentiment_df = self._transform_sentiment(symbol_data['sentiment'])
-            
+        
             # Transform technical indicators
             indicators_df = self._transform_indicators(symbol_data['indicators'])
-            
+        
             # Combine all transformed data
             combined_df = self._combine_data(intraday_df, sentiment_df, indicators_df)
             
@@ -90,7 +90,7 @@ class FinancialDataTransformer(DataTransformer):
             df['sentiment_change'] = df['sentiment_score'].diff()
         
         return df
-    
+
     def _transform_indicators(self, indicators: Dict[str, pd.DataFrame]) -> pd.DataFrame:
         """Transform technical indicators"""
         combined = pd.DataFrame()

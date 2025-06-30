@@ -57,84 +57,6 @@ trait DataTransformer {
   }
 }
 
-class EOSDISTransformer extends DataTransformer {
-  override def transform(df: DataFrame): DataFrame = {
-    validateData(df)
-    
-    // Convert score to double and handle nulls
-    val dfWithScore = df.withColumn("score", 
-      when(col("score").cast(DoubleType).isNotNull, col("score").cast(DoubleType))
-        .otherwise(lit(null))
-    )
-    
-    // Create hierarchical categories from fields
-    val dfWithCategories = dfWithScore
-      .withColumn("category_hierarchy", 
-        split(col("fields"), ":")
-      )
-      .withColumn("main_category",
-        array_min(col("category_hierarchy"))
-      )
-    
-    dfWithCategories
-  }
-}
-
-class FinancialDataTransformer extends DataTransformer {
-  override def transform(df: DataFrame): DataFrame = {
-    validateData(df)
-    
-    // Convert string columns to numeric, removing '$' and ',' characters
-    val numericDf = df.columns.foldLeft(df) { (accDf, colName) =>
-      val schema = accDf.schema
-      val field = schema.fields.find(_.name == colName).get
-      if (field.dataType == StringType) {
-        accDf.withColumn(colName,
-          regexp_replace(regexp_replace(col(colName), "\\$", ""), ",", "").cast(DoubleType)
-        )
-      } else accDf
-    }
-    
-    // Calculate daily returns
-    val withReturns = numericDf
-      .withColumn("daily_return",
-        (col("close") - lag("close", 1).over(Window.orderBy("date"))) / 
-        lag("close", 1).over(Window.orderBy("date"))
-      )
-    
-    // Calculate 20-day rolling volatility
-    val withVolatility = withReturns
-      .withColumn("volatility",
-        stddev("daily_return")
-          .over(Window.orderBy("date").rowsBetween(-19, 0))
-      )
-    
-    // Mark outliers (returns more than 3 std dev from mean)
-    val meanReturn = withVolatility.select(mean("daily_return")).first().getDouble(0)
-    val stdReturn = withVolatility.select(stddev("daily_return")).first().getDouble(0)
-    
-    withVolatility.withColumn("is_outlier",
-      abs(col("daily_return") - lit(meanReturn)) > (lit(3) * lit(stdReturn))
-    )
-  }
-
-  def streamTransform(
-    inputStream: DataFrame,
-    checkpointLocation: String,
-    outputPath: String
-  ): StreamingQuery = {
-    val transformedStream = inputStream.transform(streamingTransform)
-    
-    transformedStream.writeStream
-      .format("delta")
-      .outputMode("append")
-      .option("checkpointLocation", checkpointLocation)
-      .option("path", outputPath)
-      .trigger(Trigger.ProcessingTime("1 minute"))
-      .start()
-  }
-}
-
 class NOAADataTransformer extends DataTransformer {
   private val metricsWindow = Duration.ofMinutes(5)
   private val metricsStore = mutable.Map[String, Double]()
@@ -321,7 +243,8 @@ class NOAADataTransformer extends DataTransformer {
     }
     inputStream.sparkSession.streams.addListener(listener)
 
-    val query = inputStream.transform(streamingTransform).writeStream
+    val transformedStream = streamingTransform(inputStream)
+    val query = transformedStream.writeStream
       .outputMode(OutputMode.Append)
       .option("checkpointLocation", checkpointLocation)
       .option("path", localOutputPath)
@@ -338,8 +261,6 @@ class NOAADataTransformer extends DataTransformer {
 object DataTransformerApp {
   def apply(source: String)(implicit spark: SparkSession): DataTransformer = {
     source.toLowerCase match {
-      case "eosdis" => new EOSDISTransformer
-      case "alphavantage" => new FinancialDataTransformer
       case "noaa" => new NOAADataTransformer
       case _ => throw new IllegalArgumentException(s"Unknown source: $source")
     }
