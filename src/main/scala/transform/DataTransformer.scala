@@ -123,7 +123,7 @@ class FinancialDataTransformer extends DataTransformer {
     checkpointLocation: String,
     outputPath: String
   ): StreamingQuery = {
-    val transformedStream = inputStream.transform(transform)
+    val transformedStream = inputStream.transform(streamingTransform)
     
     transformedStream.writeStream
       .format("delta")
@@ -252,7 +252,7 @@ class NOAADataTransformer extends DataTransformer {
     
     // Create the streaming query with enhanced monitoring
     val query = createStreamingQuery(
-      inputStream.transform(transform),
+      inputStream.transform(streamingTransform),
       checkpointLocation,
       outputPath,
       triggerInterval
@@ -321,7 +321,7 @@ class NOAADataTransformer extends DataTransformer {
     }
     inputStream.sparkSession.streams.addListener(listener)
 
-    val query = inputStream.transform(transform).writeStream
+    val query = inputStream.transform(streamingTransform).writeStream
       .outputMode(OutputMode.Append)
       .option("checkpointLocation", checkpointLocation)
       .option("path", localOutputPath)
