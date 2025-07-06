@@ -1,5 +1,5 @@
 import great_expectations as ge
-from great_expectations.dataset import SparkDFDataset
+from great_expectations.dataset.sparkdf_dataset import SparkDFDataset
 from great_expectations.core import ExpectationSuite
 from great_expectations.data_context import DataContext
 from great_expectations.validator import Validator
