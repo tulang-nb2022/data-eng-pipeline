@@ -85,19 +85,25 @@ def validate_weather_data(data_path):
         print("S3 reading not implemented - use local path")
         return None
     
-    # Read all parquet files in directory
+    # Read all parquet files recursively from year/month/day subfolders
     import glob
-    parquet_files = glob.glob(f"{data_path}/*.parquet")
+    parquet_files = glob.glob(f"{data_path}/**/*.parquet", recursive=True)
     
     if not parquet_files:
         print(f"No parquet files found in {data_path}")
         return None
     
+    print(f"Found {len(parquet_files)} parquet files in subdirectories")
+    
     # Read and combine all parquet files
     dfs = []
     for file in parquet_files:
-        df = pd.read_parquet(file)
-        dfs.append(df)
+        try:
+            df = pd.read_parquet(file)
+            dfs.append(df)
+            print(f"Loaded: {file}")
+        except Exception as e:
+            print(f"Error loading {file}: {e}")
     
     if not dfs:
         print("No data found in parquet files")
