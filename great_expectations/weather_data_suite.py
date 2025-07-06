@@ -13,109 +13,9 @@ def create_weather_expectation_suite():
         overwrite_existing=True
     )
     
-    # Connect to Athena
-    athena_client = boto3.client('athena')
-    
-    # Define expectations
+    # Define expectations for simplified data structure
     expectations = [
-        # Location metadata validation
-        {
-            "expectation_type": "expect_column_values_to_not_be_null",
-            "kwargs": {
-                "column": "grid_id",
-                "mostly": 1.0
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_not_be_null",
-            "kwargs": {
-                "column": "forecast_office",
-                "mostly": 1.0
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_not_be_null",
-            "kwargs": {
-                "column": "city",
-                "mostly": 1.0
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_not_be_null",
-            "kwargs": {
-                "column": "state",
-                "mostly": 1.0
-            }
-        },
-        
-        # URL validation
-        {
-            "expectation_type": "expect_column_values_to_match_regex",
-            "kwargs": {
-                "column": "forecast_url",
-                "regex": "^https://api.weather.gov/gridpoints/.*$",
-                "mostly": 1.0
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_match_regex",
-            "kwargs": {
-                "column": "forecast_hourly_url",
-                "regex": "^https://api.weather.gov/gridpoints/.*$",
-                "mostly": 1.0
-            }
-        },
-        
-        # Distance and bearing validation
-        {
-            "expectation_type": "expect_column_values_to_be_between",
-            "kwargs": {
-                "column": "distance_meters",
-                "min_value": 0,
-                "max_value": 100000,
-                "mostly": 0.95
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_be_between",
-            "kwargs": {
-                "column": "bearing_degrees",
-                "min_value": 0,
-                "max_value": 360,
-                "mostly": 0.95
-            }
-        },
-        
-        # Data quality metrics validation
-        {
-            "expectation_type": "expect_column_values_to_be_between",
-            "kwargs": {
-                "column": "data_completeness_score",
-                "min_value": 0,
-                "max_value": 1,
-                "mostly": 1.0
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_be_between",
-            "kwargs": {
-                "column": "location_accuracy_score",
-                "min_value": 0,
-                "max_value": 1,
-                "mostly": 1.0
-            }
-        },
-        {
-            "expectation_type": "expect_column_values_to_be_between",
-            "kwargs": {
-                "column": "overall_quality_score",
-                "min_value": 0,
-                "max_value": 1,
-                "mostly": 1.0
-            }
-        },
-        
-        # Time-based validation
+        # Basic data presence validation
         {
             "expectation_type": "expect_column_values_to_not_be_null",
             "kwargs": {
@@ -124,30 +24,100 @@ def create_weather_expectation_suite():
             }
         },
         {
-            "expectation_type": "expect_column_values_to_be_between",
+            "expectation_type": "expect_column_values_to_not_be_null",
             "kwargs": {
-                "column": "data_freshness_minutes",
-                "min_value": 0,
-                "max_value": 60,
-                "mostly": 0.95
+                "column": "year",
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "month",
+                "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "day",
+                "mostly": 1.0
             }
         },
         
-        # Pattern validation
+        # Data source validation
         {
             "expectation_type": "expect_column_values_to_be_in_set",
             "kwargs": {
-                "column": "weather_pattern",
-                "value_set": ["Coastal Summer", "Coastal Winter", "Inland Summer", "Inland Winter", "Transitional"],
+                "column": "data_source",
+                "value_set": ["noaa", "alphavantage", "eosdis"],
+                "mostly": 1.0
+            }
+        },
+        
+        # Time-based validation
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "year",
+                "min_value": 2020,
+                "max_value": 2030,
                 "mostly": 1.0
             }
         },
         {
-            "expectation_type": "expect_column_values_to_be_in_set",
+            "expectation_type": "expect_column_values_to_be_between",
             "kwargs": {
-                "column": "season",
-                "value_set": ["Spring", "Summer", "Fall", "Winter"],
+                "column": "month",
+                "min_value": 1,
+                "max_value": 12,
                 "mostly": 1.0
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {
+                "column": "day",
+                "min_value": 1,
+                "max_value": 31,
+                "mostly": 1.0
+            }
+        },
+        
+        # Optional field validation (these may be null depending on data source)
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "temperature",
+                "mostly": 0.8  # Allow some nulls for non-weather data
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "city",
+                "mostly": 0.8
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "open",
+                "mostly": 0.8  # Allow some nulls for non-financial data
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "close",
+                "mostly": 0.8
+            }
+        },
+        {
+            "expectation_type": "expect_column_values_to_not_be_null",
+            "kwargs": {
+                "column": "score",
+                "mostly": 0.8  # Allow some nulls for non-EOSDIS data
             }
         }
     ]
@@ -158,9 +128,12 @@ def create_weather_expectation_suite():
     
     return suite
 
-def validate_weather_data(spark_session, s3_path):
-    # Read data from S3
-    df = spark_session.read.parquet(s3_path)
+def validate_weather_data(spark_session, data_path):
+    # Read data from local path or S3
+    if data_path.startswith("s3://"):
+        df = spark_session.read.parquet(data_path)
+    else:
+        df = spark_session.read.parquet(data_path)
     
     # Create Great Expectations dataset
     ge_df = SparkDFDataset(df)
@@ -171,11 +144,18 @@ def validate_weather_data(spark_session, s3_path):
     # Run validations
     results = ge_df.validate(suite)
     
-    # Save validation results
-    results.save_to_s3(
-        bucket="your-validation-results-bucket",
-        key="weather_data_validation_results.json"
-    )
+    # Print validation results
+    print("Validation Results:")
+    print(f"Total expectations: {len(results.results)}")
+    print(f"Successful: {len([r for r in results.results if r.success])}")
+    print(f"Failed: {len([r for r in results.results if not r.success])}")
+    
+    # Print failed expectations
+    failed_expectations = [r for r in results.results if not r.success]
+    if failed_expectations:
+        print("\nFailed Expectations:")
+        for result in failed_expectations:
+            print(f"- {result.expectation_config.expectation_type}: {result.result}")
     
     return results
 
@@ -186,8 +166,9 @@ if __name__ == "__main__":
         .appName("Weather Data Validation") \
         .getOrCreate()
     
-    s3_path = "s3://your-bucket/weather-data/"
-    results = validate_weather_data(spark, s3_path)
+    # Use local path for testing
+    data_path = "data/processed"
+    results = validate_weather_data(spark, data_path)
     
     # Print validation results
     print(results) 
