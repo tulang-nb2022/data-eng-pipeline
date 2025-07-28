@@ -15,7 +15,8 @@ setup(
         "dbt-postgres",
         "confluent-kafka",
         "pyarrow",
-        "fastparquet"
+        "fastparquet",
+        "scipy"
     ],
     python_requires=">=3.8",
 ) 
