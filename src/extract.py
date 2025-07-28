@@ -162,7 +162,7 @@ class AlphaVantageExtractor(DataExtractor):
         
         # Only rename columns if we have data
         if not df.empty:
-            df.columns = ['open', 'high', 'low', 'close', 'volume']
+        df.columns = ['open', 'high', 'low', 'close', 'volume']
             
             # Publish processed data to Kafka
             self._publish_to_kafka(

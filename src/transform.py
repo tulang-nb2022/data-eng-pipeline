@@ -73,7 +73,7 @@ class FinancialDataTransformer(DataTransformer):
         df['volume_ratio'] = df['volume'] / df['volume_ma']
         
         return df
-    
+
     def _transform_sentiment(self, df: pd.DataFrame) -> pd.DataFrame:
         """Transform sentiment data"""
         self.validate_data(df)

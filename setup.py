@@ -13,7 +13,9 @@ setup(
         "psycopg2-binary",
         "dbt-core",
         "dbt-postgres",
-        "confluent-kafka"
+        "confluent-kafka",
+        "pyarrow",
+        "fastparquet"
     ],
     python_requires=">=3.8",
 ) 
