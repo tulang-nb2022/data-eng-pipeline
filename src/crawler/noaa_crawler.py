@@ -160,7 +160,7 @@ class WeatherCrawler:
         except Exception as e:
             logger.error(f"Error sending to Kafka: {str(e)}")
     
-    def crawl_weather_data(self, lat: float = 55.3422, lon: float = -.6461) -> None:
+    def crawl_weather_data(self, lat: float = 35.4689, lon: float = -97.5195) -> None:
         """Crawl weather data for a specific location"""
         try:
             # Get forecast data
