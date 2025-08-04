@@ -16,9 +16,9 @@ assembly / assemblyMergeStrategy := {
 }
 
 libraryDependencies ++= Seq(
-  "org.apache.spark" %% "spark-sql" % "3.2.0",
-  "org.apache.spark" %% "spark-streaming" % "3.2.0",
-  "org.apache.spark" %% "spark-streaming-kafka-0-10" % "3.2.0",
+  "org.apache.spark" %% "spark-sql" % "3.3.0",
+  "org.apache.spark" %% "spark-streaming" % "3.3.0",
+  "org.apache.spark" %% "spark-streaming-kafka-0-10" % "3.3.0",
   "org.apache.kafka" % "kafka-clients" % "2.8.0",
   "io.delta" %% "delta-core" % "1.0.0",
   "com.typesafe" % "config" % "1.4.1",
