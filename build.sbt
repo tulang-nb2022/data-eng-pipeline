@@ -1,12 +1,12 @@
 name := "data-engineering-project"
 version := "0.1.0"
-scalaVersion := "2.12.15"
+scalaVersion := "2.12.10"
 
 // Comprehensive dependency overrides to ensure Scala version consistency
 dependencyOverrides ++= Seq(
-  "org.scala-lang" % "scala-library" % "2.12.15",
-  "org.scala-lang" % "scala-reflect" % "2.12.15",
-  "org.scala-lang" % "scala-compiler" % "2.12.15"
+  "org.scala-lang" % "scala-library" % "2.12.10",
+  "org.scala-lang" % "scala-reflect" % "2.12.10",
+  "org.scala-lang" % "scala-compiler" % "2.12.10"
 )
 
 // Add assembly plugin
@@ -16,9 +16,9 @@ assembly / assemblyMergeStrategy := {
 }
 
 libraryDependencies ++= Seq(
-  "org.apache.spark" %% "spark-sql" % "3.3.2",
-  "org.apache.spark" %% "spark-streaming" % "3.3.2",
-  "org.apache.spark" %% "spark-streaming-kafka-0-10" % "3.3.2",
+  "org.apache.spark" %% "spark-sql" % "3.2.3",
+  "org.apache.spark" %% "spark-streaming" % "3.2.3",
+  "org.apache.spark" %% "spark-streaming-kafka-0-10" % "3.2.3",
   "org.apache.kafka" % "kafka-clients" % "2.8.0",
   "io.delta" %% "delta-core" % "1.0.0",
   "com.typesafe" % "config" % "1.4.1",

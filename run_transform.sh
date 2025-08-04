@@ -40,7 +40,7 @@ if [ "$1" = "kafka" ]; then
     --executor-memory 2g \
     --conf spark.driver.extraJavaOptions="--add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED" \
     --conf spark.executor.extraJavaOptions="--add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED" \
-    --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.2 \
+    --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.2.3 \
     target/scala-2.12/data-engineering-project-assembly-0.1.0.jar \
     "$KAFKA_TOPIC" \
     "$SOURCE_TYPE" \
