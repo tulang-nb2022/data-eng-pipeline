@@ -10,8 +10,16 @@ from great_expectations.core.batch import RuntimeBatchRequest
 def create_simple_expectation_suite(context: FileDataContext, suite_name: str = "weather_data_suite"):
     """Create a simple but comprehensive expectation suite for weather data"""
     
-    # Create expectation suite
-    suite = context.create_expectation_suite(suite_name, overwrite_existing=True)
+    # Create expectation suite using the correct API
+    try:
+        suite = context.get_or_create_expectation_suite(suite_name)
+        print(f"✅ Created/retrieved expectation suite: {suite_name}")
+    except Exception as e:
+        print(f"❌ Failed to create expectation suite: {e}")
+        return None
+    
+    # Clear existing expectations
+    suite.expectations = []
     
     # Add basic expectations using the simple API
     suite.add_expectation(
@@ -80,7 +88,12 @@ def create_simple_expectation_suite(context: FileDataContext, suite_name: str = 
     )
     
     # Save the suite
-    context.save_expectation_suite(suite)
+    try:
+        context.save_expectation_suite(suite)
+        print("✅ Expectation suite saved successfully")
+    except Exception as e:
+        print(f"❌ Failed to save expectation suite: {e}")
+    
     return suite
 
 def validate_weather_data_simple(data_path: str, context_path: str = "great_expectations"):
@@ -99,11 +112,8 @@ def validate_weather_data_simple(data_path: str, context_path: str = "great_expe
         return None
     
     # Create expectation suite
-    try:
-        suite = create_simple_expectation_suite(context)
-        print("✅ Expectation suite created successfully")
-    except Exception as e:
-        print(f"❌ Failed to create expectation suite: {e}")
+    suite = create_simple_expectation_suite(context)
+    if not suite:
         return None
     
     # Read data using pandas
@@ -111,23 +121,39 @@ def validate_weather_data_simple(data_path: str, context_path: str = "great_expe
         print("❌ S3 reading not implemented - use local path")
         return None
     
-    # Read all parquet files recursively
+    # Read all parquet files recursively with better debugging
     import glob
     parquet_files = glob.glob(f"{data_path}/**/*.parquet", recursive=True)
     
     if not parquet_files:
         print(f"❌ No parquet files found in {data_path}")
+        print(f"🔍 Searched in: {os.path.abspath(data_path)}")
         return None
     
     print(f"📁 Found {len(parquet_files)} parquet files")
+    print("📋 Files found:")
+    for file in parquet_files:
+        print(f"   - {file}")
     
-    # Read and combine all parquet files
+    # Read and combine all parquet files with detailed debugging
     dfs = []
+    total_rows = 0
+    
     for file in parquet_files:
         try:
             df = pd.read_parquet(file)
             dfs.append(df)
+            total_rows += len(df)
+            
+            # Show sample data for debugging
             print(f"📄 Loaded: {file} ({len(df)} rows)")
+            print(f"   Columns: {list(df.columns)}")
+            if len(df) > 0:
+                print(f"   Sample data source: {df['data_source'].iloc[0] if 'data_source' in df.columns else 'N/A'}")
+                print(f"   Sample year: {df['year'].iloc[0] if 'year' in df.columns else 'N/A'}")
+                print(f"   Sample month: {df['month'].iloc[0] if 'month' in df.columns else 'N/A'}")
+                print(f"   Sample day: {df['day'].iloc[0] if 'day' in df.columns else 'N/A'}")
+            
         except Exception as e:
             print(f"❌ Error loading {file}: {e}")
     
@@ -138,6 +164,19 @@ def validate_weather_data_simple(data_path: str, context_path: str = "great_expe
     # Combine all dataframes
     combined_df = pd.concat(dfs, ignore_index=True)
     print(f"📊 Combined dataset: {len(combined_df)} total rows")
+    print(f"📊 Combined columns: {list(combined_df.columns)}")
+    
+    # Show data summary
+    print("\n📈 Data Summary:")
+    print(f"   Total records: {len(combined_df):,}")
+    if 'data_source' in combined_df.columns:
+        print(f"   Data sources: {combined_df['data_source'].value_counts().to_dict()}")
+    if 'year' in combined_df.columns:
+        print(f"   Year range: {combined_df['year'].min()} - {combined_df['year'].max()}")
+    if 'month' in combined_df.columns:
+        print(f"   Month range: {combined_df['month'].min()} - {combined_df['month'].max()}")
+    if 'day' in combined_df.columns:
+        print(f"   Day range: {combined_df['day'].min()} - {combined_df['day'].max()}")
     
     # Create batch request for Great Expectations
     try:
@@ -171,6 +210,8 @@ def validate_weather_data_simple(data_path: str, context_path: str = "great_expe
         
     except Exception as e:
         print(f"❌ Validation failed: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def display_validation_results(results, df):
