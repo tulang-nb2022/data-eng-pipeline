@@ -7,7 +7,7 @@ from great_expectations.data_context import FileDataContext
 from great_expectations.core.batch import RuntimeBatchRequest
 from great_expectations.execution_engine import PandasExecutionEngine
 from great_expectations.validator.validator import Validator
-from great_expectations.core.expectation_configuration import ExpectationConfiguration
+from great_expectations.core import ExpectationConfiguration
 from great_expectations.core.expectation_suite import ExpectationSuite
 import great_expectations as ge
 
