@@ -20,7 +20,7 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-streaming" % "4.0.0",
   "org.apache.spark" %% "spark-streaming-kafka-0-10" % "4.0.0",
   "org.apache.kafka" % "kafka-clients" % "3.6.0",
-  "io.delta" %% "delta-core" % "4.0.0",
+  "io.delta" %% "delta-core" % "3.0.0",
   "com.typesafe" % "config" % "1.4.2",
   "org.json4s" %% "json4s-jackson" % "4.1.0-M4",
   "org.scalaj" %% "scalaj-http" % "2.4.2",
@@ -28,4 +28,4 @@ libraryDependencies ++= Seq(
 )
 
 // Enable Delta Lake SQL commands
-// sparkDependencies += "io.delta" %% "delta-core" % "4.0.0" 
+// sparkDependencies += "io.delta" %% "delta-core" % "3.0.0" 
