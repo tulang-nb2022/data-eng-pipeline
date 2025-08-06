@@ -244,8 +244,8 @@ def initialize_great_expectations_simple(project_root: str = "great_expectations
     os.makedirs(project_root, exist_ok=True)
     
     try:
-        # Initialize Great Expectations context
-        context = FileDataContext.create(project_root_dir=project_root)
+        # Initialize Great Expectations context using the correct method
+        context = FileDataContext(project_root_dir=project_root)
         
         # Create datasource configuration
         datasource_config = {
