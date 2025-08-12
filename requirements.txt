@@ -9,4 +9,6 @@ pandera==0.19.3
 multimethod==1.10.0
 typing-extensions>=4.8.0
 setuptools>=65.0.0
+PyAthena==3.0.10
+boto3>=1.26.0
 

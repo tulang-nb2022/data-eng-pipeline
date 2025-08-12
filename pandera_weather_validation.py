@@ -5,6 +5,12 @@ import glob
 import os
 from datetime import datetime
 from typing import Optional, Dict, Any
+try:
+    from pyathena import connect
+    ATHENA_AVAILABLE = True
+except ImportError:
+    ATHENA_AVAILABLE = False
+    print("PyAthena not available. Install with: pip install PyAthena")
 
 
 def create_weather_data_schema() -> DataFrameSchema:
@@ -13,38 +19,86 @@ def create_weather_data_schema() -> DataFrameSchema:
     schema = DataFrameSchema(
         columns={
             "processing_timestamp": Column(
-                dtype="object",  # Can be string or datetime
+                dtype="datetime64[ns]",
                 nullable=False,
                 description="Timestamp when data was processed"
             ),
-            "year": Column(
-                dtype="int64",
-                checks=[
-                    Check.greater_than_or_equal_to(2020),
-                    Check.less_than_or_equal_to(2030)
-                ],
+            "temperature": Column(
+                dtype="float64",
                 nullable=True,
-                description="Year of the weather data"
+                description="Temperature measurement"
             ),
-            "month": Column(
-                dtype="int64", 
-                checks=[
-                    Check.greater_than_or_equal_to(1),
-                    Check.less_than_or_equal_to(12)
-                ],
-                nullable=True,
-                description="Month of the weather data"
-            ),
-            "day": Column(
-                dtype="int64",
-                nullable=True,
-                description="Day of the weather data"
-            ),
-            "data_source": Column(
+            "city": Column(
                 dtype="object",
-                checks=[Check.isin(["noaa", "alphavantage", "eosdis"])],
-                nullable=False,
-                description="Source of the weather data"
+                nullable=True,
+                description="City name"
+            ),
+            "open": Column(
+                dtype="float64",
+                nullable=True,
+                description="Opening value"
+            ),
+            "score": Column(
+                dtype="float64",
+                nullable=True,
+                description="Score value"
+            ),
+            "wind_speed": Column(
+                dtype="float64",
+                nullable=True,
+                description="Wind speed measurement"
+            ),
+            "humidity": Column(
+                dtype="float64",
+                checks=[
+                    Check.greater_than_or_equal_to(0),
+                    Check.less_than_or_equal_to(100)
+                ],
+                nullable=True,
+                description="Humidity percentage (0-100)"
+            ),
+            "timestamp": Column(
+                dtype="object",
+                nullable=True,
+                description="Data timestamp"
+            ),
+            "hour": Column(
+                dtype="int64",
+                checks=[
+                    Check.greater_than_or_equal_to(0),
+                    Check.less_than_or_equal_to(23)
+                ],
+                nullable=True,
+                description="Hour of the day (0-23)"
+            ),
+            "pressure": Column(
+                dtype="float64",
+                nullable=True,
+                description="Atmospheric pressure"
+            ),
+            "minute": Column(
+                dtype="int64",
+                checks=[
+                    Check.greater_than_or_equal_to(0),
+                    Check.less_than_or_equal_to(59)
+                ],
+                nullable=True,
+                description="Minute of the hour (0-59)"
+            ),
+            "close": Column(
+                dtype="float64",
+                nullable=True,
+                description="Closing value"
+            ),
+            "visibility": Column(
+                dtype="float64",
+                nullable=True,
+                description="Visibility measurement"
+            ),
+            "volume": Column(
+                dtype="float64",
+                nullable=True,
+                description="Volume measurement"
             )
         },
         checks=[
@@ -52,9 +106,9 @@ def create_weather_data_schema() -> DataFrameSchema:
             Check(lambda df: len(df) >= 1, error="Table must have at least 1 row"),
             Check(lambda df: len(df) <= 1000000, error="Table must have at most 1,000,000 rows")
         ],
-        ordered=True,  # Enforce column order
+        ordered=False,  # Don't enforce column order since we have many columns
         strict=False,  # Allow additional columns beyond the schema
-        description="Weather data validation schema"
+        description="Weather and financial data validation schema"
     )
     
     return schema
@@ -285,14 +339,176 @@ def run_pandera_validation(data_path: str = "data/processed") -> Dict[str, Any]:
     return results
 
 
-if __name__ == "__main__":
-    # Run validation on the default data path
-    results = run_pandera_validation()
+def validate_athena_table(
+    database: str,
+    table: str,
+    region: str = 'us-east-1',
+    s3_staging_dir: str = None,
+    sample_size: Optional[int] = 10000,
+    partition_filter: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Validate Athena table data using Pandera
     
-    if results.get("success"):
-        print(f"\n🎉 Validation completed successfully!")
-        print(f"📊 Validated {results['total_records']:,} records")
+    Args:
+        database: Athena database name
+        table: Athena table name
+        region: AWS region
+        s3_staging_dir: S3 path for Athena query results
+        sample_size: Number of rows to validate (None for all)
+        partition_filter: WHERE clause for partition filtering
+    """
+    
+    if not ATHENA_AVAILABLE:
+        return {
+            'status': 'error',
+            'error': 'PyAthena not installed. Run: pip install PyAthena'
+        }
+    
+    if not s3_staging_dir:
+        s3_staging_dir = f's3://your-athena-results-bucket/pandera-validation-results/'
+    
+    try:
+        # Connect to Athena
+        conn = connect(
+            s3_staging_dir=s3_staging_dir,
+            region_name=region
+        )
+        
+        # Build query
+        query = f"SELECT * FROM {database}.{table}"
+        
+        if partition_filter:
+            query += f" WHERE {partition_filter}"
+        
+        if sample_size:
+            query += f" LIMIT {sample_size}"
+        
+        print(f" Executing Athena query: {query}")
+        
+        # Read data into pandas DataFrame
+        df = pd.read_sql(query, conn)
+        
+        print(f" Retrieved {len(df)} rows from Athena")
+        
+        # Get schema and validate
+        schema = create_weather_data_schema()
+        
+        try:
+            validated_df = schema.validate(df, lazy=True)
+            
+            return {
+                'status': 'valid',
+                'table': f"{database}.{table}",
+                'rows_validated': len(df),
+                'validation_timestamp': datetime.now().isoformat(),
+                'query': query
+            }
+            
+        except pa.errors.SchemaErrors as schema_errors:
+            display_pandera_errors(schema_errors, df)
+            
+            return {
+                'status': 'invalid',
+                'table': f"{database}.{table}",
+                'rows_validated': len(df),
+                'validation_timestamp': datetime.now().isoformat(),
+                'errors': str(schema_errors),
+                'query': query
+            }
+            
+    except Exception as e:
+        return {
+            'status': 'error',
+            'table': f"{database}.{table}",
+            'error': str(e),
+            'validation_timestamp': datetime.now().isoformat()
+        }
+    
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
+
+def run_validation_pipeline(
+    mode: str = 'local',
+    data_path: str = "data/processed",
+    database: str = None,
+    table: str = None,
+    **kwargs
+) -> Dict[str, Any]:
+    """
+    Run validation in either local or athena mode
+    
+    Args:
+        mode: 'local' or 'athena'
+        data_path: Path for local validation
+        database: Athena database name
+        table: Athena table name
+        **kwargs: Additional arguments for athena validation
+    """
+    
+    if mode == 'local':
+        print(" Running LOCAL validation...")
+        return run_pandera_validation(data_path)
+    
+    elif mode == 'athena':
+        if not database or not table:
+            return {
+                'status': 'error',
+                'error': 'Database and table required for Athena validation'
+            }
+        
+        print(" Running ATHENA validation...")
+        return validate_athena_table(database, table, **kwargs)
+    
     else:
-        print(f"\n⚠️ Validation completed with issues")
-        if "error" in results:
-            print(f"❌ Error: {results['error']}")
+        return {
+            'status': 'error',
+            'error': f"Invalid mode: {mode}. Use 'local' or 'athena'"
+        }
+
+
+if __name__ == "__main__":
+    import sys
+    
+    # Parse command line arguments for mode selection
+    if len(sys.argv) > 1 and sys.argv[1] == 'athena':
+        # Example: python pandera_weather_validation.py athena my_database my_table
+        if len(sys.argv) >= 4:
+            database = sys.argv[2]
+            table = sys.argv[3]
+            results = run_validation_pipeline(
+                mode='athena',
+                database=database,
+                table=table,
+                s3_staging_dir='s3://your-bucket/athena-results/'  # Update this
+            )
+        else:
+            print("Usage: python pandera_weather_validation.py athena <database> <table>")
+            sys.exit(1)
+    else:
+        # Default local validation
+        results = run_validation_pipeline(mode='local')
+    
+    # Display results
+    if results:
+        print("\n" + "="*60)
+        print(" VALIDATION SUMMARY")
+        print("="*60)
+        
+        if isinstance(results, list):
+            # Local validation results
+            for result in results:
+                status_emoji = "" if result['status'] == 'valid' else ""
+                print(f"{status_emoji} {result['file']}: {result['status']}")
+                if result['status'] != 'valid':
+                    print(f"   Error: {result['error']}")
+        else:
+            # Athena validation result
+            status_emoji = "" if results['status'] == 'valid' else ""
+            print(f"{status_emoji} {results.get('table', 'Athena Table')}: {results['status']}")
+            if results['status'] != 'valid':
+                print(f"   Error: {results.get('error', 'Unknown error')}")
+                
+        print("="*60)

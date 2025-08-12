@@ -47,7 +47,15 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 3. Install dependencies:
 ```bash
+# Upgrade pip first for Python 3.12 compatibility
+pip install --upgrade pip setuptools>=65.0.0
+
+# Install all dependencies
 pip install -r requirements.txt
+
+# Verify pandera installation
+python -c "import pandera as pa; print('✅ Pandera installed successfully')"
+```
 ```
 
 4. Set up environment variables:
@@ -148,6 +156,184 @@ The streaming transformation job will:
 - Apply transformations using Spark Streaming
 - Write processed data to local storage in Parquet format
 - Handle different data types with automatic detection
+
+### Complete Integrated Pipeline with Validation
+
+The project implements a comprehensive pipeline that integrates Kafka streaming, Scala transformation, dual-mode validation, and Airflow monitoring:
+
+**Pipeline Flow:** Kafka → Scala DataTransformer → Local Validation → S3 Upload → Athena → Production Validation → Airflow Monitoring
+
+#### 1. Run Complete Pipeline with Validation
+
+```bash
+#!/bin/bash
+# Complete integrated pipeline script
+
+echo "🚀 Starting integrated data pipeline..."
+
+# Step 1: Ensure Kafka is running
+echo "📍 Step 1: Kafka services"
+# Start if not running: bin/kafka-server-start.sh config/server.properties &
+
+# Step 2: Run Scala data transformation
+echo "📍 Step 2: Data transformation"
+./run_transform.sh weather-forecast noaa data/processed
+
+# Step 3: Local validation (fast feedback)
+echo "📍 Step 3: Local validation"
+python pandera_weather_validation.py
+if [ $? -ne 0 ]; then
+    echo "❌ Local validation failed - stopping pipeline"
+    exit 1
+fi
+
+# Step 4: Upload to S3 (only if validation passes)
+echo "📍 Step 4: Upload to S3"
+aws s3 cp data/processed/ s3://your-data-bucket/processed/ --recursive
+
+# Step 5: Setup Athena table (first time only)
+echo "📍 Step 5: Setup Athena"
+aws athena start-query-execution \
+  --query-string "CREATE DATABASE IF NOT EXISTS weather_db" \
+  --result-configuration OutputLocation=s3://your-athena-results-bucket/
+
+aws athena start-query-execution \
+  --query-string "
+CREATE EXTERNAL TABLE IF NOT EXISTS weather_db.processed_weather_data (
+  processing_timestamp timestamp,
+  temperature double,
+  city string,
+  humidity double,
+  wind_speed double,
+  pressure double,
+  hour int,
+  minute int,
+  open double,
+  close double,
+  volume bigint,
+  visibility double,
+  score double,
+  timestamp string
+)
+STORED AS PARQUET
+LOCATION 's3://your-data-bucket/processed/'
+" \
+  --result-configuration OutputLocation=s3://your-athena-results-bucket/
+
+# Step 6: Production validation on Athena
+echo "📍 Step 6: Production validation"
+python pandera_weather_validation.py athena weather_db processed_weather_data
+if [ $? -ne 0 ]; then
+    echo "❌ Production validation failed"
+    exit 1
+fi
+
+echo "✅ Pipeline completed successfully!"
+```
+
+#### 2. Individual Pipeline Steps
+
+**Local Validation (Post-Transform):**
+```bash
+# After transformation, validate locally
+python pandera_weather_validation.py
+
+# Expected output:
+# 🏠 Running LOCAL validation...
+# ✅ data/processed/weather_data.parquet: valid
+```
+
+**Athena Production Validation:**
+```bash
+# Setup AWS credentials
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+export AWS_DEFAULT_REGION=us-east-1
+
+# Run production validation
+python pandera_weather_validation.py athena weather_db processed_weather_data
+
+# Expected output:
+# ☁️  Running ATHENA validation...
+# ✅ weather_db.processed_weather_data: valid
+```
+
+#### 3. Airflow Integration
+
+Create an Airflow DAG for automated pipeline orchestration:
+
+```python
+# dags/integrated_data_pipeline.py
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from datetime import datetime, timedelta
+
+def run_local_validation():
+    from pandera_weather_validation import run_validation_pipeline
+    result = run_validation_pipeline(mode='local', data_path='data/processed')
+    if not result or any(r['status'] != 'valid' for r in result):
+        raise ValueError("Local validation failed")
+
+def run_athena_validation():
+    from pandera_weather_validation import validate_athena_table
+    result = validate_athena_table(
+        database='weather_db',
+        table='processed_weather_data',
+        s3_staging_dir='s3://your-athena-results-bucket/validation/'
+    )
+    if result['status'] != 'valid':
+        raise ValueError(f"Athena validation failed: {result.get('error', 'Unknown error')}")
+
+default_args = {
+    'owner': 'data-eng',
+    'depends_on_past': False,
+    'start_date': datetime(2024, 1, 1),
+    'email_on_failure': True,
+    'email_on_retry': False,
+    'retries': 1,
+    'retry_delay': timedelta(minutes=5)
+}
+
+dag = DAG(
+    'integrated_data_pipeline',
+    default_args=default_args,
+    description='Complete data pipeline with validation',
+    schedule_interval='@hourly',
+    catchup=False
+)
+
+# Task 1: Data transformation
+transform_task = BashOperator(
+    task_id='data_transformation',
+    bash_command='cd /path/to/project && ./run_transform.sh weather-forecast noaa data/processed',
+    dag=dag
+)
+
+# Task 2: Local validation
+local_validation_task = PythonOperator(
+    task_id='local_validation',
+    python_callable=run_local_validation,
+    dag=dag
+)
+
+# Task 3: S3 upload
+s3_upload_task = BashOperator(
+    task_id='s3_upload',
+    bash_command='aws s3 cp data/processed/ s3://your-data-bucket/processed/ --recursive',
+    dag=dag
+)
+
+# Task 4: Athena validation
+athena_validation_task = PythonOperator(
+    task_id='athena_validation',
+    python_callable=run_athena_validation,
+    dag=dag
+)
+
+# Define task dependencies
+transform_task >> local_validation_task >> s3_upload_task >> athena_validation_task
+```
 
 ### Testing the Kafka Streaming Setup
 
