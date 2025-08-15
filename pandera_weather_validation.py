@@ -14,91 +14,81 @@ except ImportError:
 
 
 def create_weather_data_schema() -> DataFrameSchema:
-    """Create Pandera schema for weather data validation"""
+    """Create Pandera schema for weather data validation from NOAA crawler"""
     
     schema = DataFrameSchema(
         columns={
-            "processing_timestamp": Column(
-                dtype="datetime64[ns]",
-                nullable=False,
-                description="Timestamp when data was processed"
-            ),
             "temperature": Column(
                 dtype="float64",
-                nullable=True,
-                description="Temperature measurement"
-            ),
-            "city": Column(
-                dtype="object",
-                nullable=True,
-                description="City name"
-            ),
-            "open": Column(
-                dtype="float64",
-                nullable=True,
-                description="Opening value"
-            ),
-            "score": Column(
-                dtype="float64",
-                nullable=True,
-                description="Score value"
+                nullable=False,  # Required field
+                description="Temperature measurement in Celsius",
+                checks=[
+                    Check.greater_than_or_equal_to(-90),  # Reasonable min temp
+                    Check.less_than_or_equal_to(60)       # Reasonable max temp
+                ]
             ),
             "wind_speed": Column(
-                dtype="float64",
-                nullable=True,
-                description="Wind speed measurement"
+                dtype="object",  # String in Parquet
+                nullable=True,   # Optional field
+                description="Wind speed measurement as string"
+            ),
+            "city": Column(
+                dtype="object",  # String in Parquet
+                nullable=True,   # Optional field
+                description="City name"
+            ),
+            "timestamp": Column(
+                dtype="object",  # String in Parquet
+                nullable=True,   # Optional field
+                description="Original timestamp of the weather data"
             ),
             "humidity": Column(
                 dtype="float64",
+                nullable=False,  # Required field
+                description="Humidity percentage",
                 checks=[
                     Check.greater_than_or_equal_to(0),
                     Check.less_than_or_equal_to(100)
-                ],
-                nullable=True,
-                description="Humidity percentage (0-100)"
-            ),
-            "timestamp": Column(
-                dtype="object",
-                nullable=True,
-                description="Data timestamp"
-            ),
-            "hour": Column(
-                dtype="int64",
-                checks=[
-                    Check.greater_than_or_equal_to(0),
-                    Check.less_than_or_equal_to(23)
-                ],
-                nullable=True,
-                description="Hour of the day (0-23)"
+                ]
             ),
             "pressure": Column(
                 dtype="float64",
-                nullable=True,
-                description="Atmospheric pressure"
-            ),
-            "minute": Column(
-                dtype="int64",
+                nullable=False,  # Required field
+                description="Atmospheric pressure in hPa",
                 checks=[
-                    Check.greater_than_or_equal_to(0),
-                    Check.less_than_or_equal_to(59)
-                ],
-                nullable=True,
-                description="Minute of the hour (0-59)"
-            ),
-            "close": Column(
-                dtype="float64",
-                nullable=True,
-                description="Closing value"
+                    Check.greater_than(800),
+                    Check.less_than(1100)
+                ]
             ),
             "visibility": Column(
                 dtype="float64",
-                nullable=True,
-                description="Visibility measurement"
+                nullable=False,  # Required field
+                description="Visibility in km",
+                checks=Check.greater_than_or_equal_to(0)
             ),
-            "volume": Column(
-                dtype="float64",
-                nullable=True,
-                description="Volume measurement"
+            "processing_timestamp": Column(
+                dtype="datetime64[ns]",
+                nullable=False,  # Required field
+                description="When the data was processed",
+                checks=Check.less_than_or_equal_to(pd.Timestamp.now())
+            ),
+            "hour": Column(
+                dtype="int32",
+                nullable=False,  # Required field
+                description="Hour of the day (0-23)",
+                checks=[
+                    Check.greater_than_or_equal_to(0),
+                    Check.less_than(24)
+                ]
+            ),
+            "minute": Column(
+                dtype="int32",
+                nullable=False,  # Required field
+                description="Minute of the hour (0-59)",
+                checks=[
+                    Check.greater_than_or_equal_to(0),
+                    Check.less_than(60)
+                ]
             )
         },
         checks=[
@@ -106,9 +96,10 @@ def create_weather_data_schema() -> DataFrameSchema:
             Check(lambda df: len(df) >= 1, error="Table must have at least 1 row"),
             Check(lambda df: len(df) <= 1000000, error="Table must have at most 1,000,000 rows")
         ],
-        ordered=False,  # Don't enforce column order since we have many columns
-        strict=False,  # Allow additional columns beyond the schema
-        description="Weather and financial data validation schema"
+        ordered=False,  # Don't enforce column order
+        strict=True,   # Only allow defined columns (no extra columns)
+        coerce=True,   # Try to coerce types when possible
+        description="Weather data validation schema for NOAA crawler output"
     )
     
     return schema
@@ -469,26 +460,62 @@ def run_validation_pipeline(
         }
 
 
-if __name__ == "__main__":
     import sys
+    import os
     
-    # Parse command line arguments for mode selection
+    # Auto-detect S3 staging directory from environment or use default
+    def get_s3_staging_dir():
+        # Try environment variable first
+        staging_dir = os.getenv('ATHENA_S3_STAGING_DIR')
+        if staging_dir:
+            return staging_dir
+        
+        # Try to detect from AWS CLI config or use reasonable default
+        try:
+            import boto3
+            # Get default bucket from current AWS session
+            s3_client = boto3.client('s3')
+            buckets = s3_client.list_buckets()['Buckets']
+            if buckets:
+                # Use first available bucket with athena-results path
+                bucket_name = buckets[0]['Name']
+                return f"s3://{bucket_name}/athena-results/"
+        except:
+            pass
+        
+        # Fallback to a common pattern
+        return "s3://your-athena-results-bucket/"
+    
     if len(sys.argv) > 1 and sys.argv[1] == 'athena':
-        # Example: python pandera_weather_validation.py athena my_database my_table
+        # Minimal parameters: just database and table
         if len(sys.argv) >= 4:
             database = sys.argv[2]
             table = sys.argv[3]
+            s3_staging_dir = get_s3_staging_dir()
+            
+            print(f"🔍 Running Athena validation...")
+            print(f"   Database: {database}")
+            print(f"   Table: {table}")
+            print(f"   S3 Staging: {s3_staging_dir}")
+            
             results = run_validation_pipeline(
                 mode='athena',
                 database=database,
                 table=table,
-                s3_staging_dir='s3://your-bucket/athena-results/'  # Update this
+                s3_staging_dir=s3_staging_dir,
+                sample_size=10000,  # Reasonable default for production
+                region=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
             )
         else:
             print("Usage: python pandera_weather_validation.py athena <database> <table>")
+            print("Example: python pandera_weather_validation.py athena weather_db auto_weather_data")
+            print("\nOptional environment variables:")
+            print("  ATHENA_S3_STAGING_DIR - S3 path for Athena results")
+            print("  AWS_DEFAULT_REGION - AWS region (default: us-east-1)")
             sys.exit(1)
     else:
         # Default local validation
+        print("🔍 Running local validation...")
         results = run_validation_pipeline(mode='local')
     
     # Display results
