@@ -132,15 +132,25 @@ def validate_weather_data_pandera(data_path: str) -> Dict[str, Any]:
     direct_files = glob.glob(f"{data_path}/**/*.parquet", recursive=True)
     parquet_files.extend(direct_files)
     
-    # Also search for common partition patterns
+    # Also search for common partition patterns (handle both year= and year\= formats)
     partition_patterns = [
         f"{data_path}/year=*/month=*/day=*/*.parquet",
+        f"{data_path}/year\\=*/month\\=*/day\\=*/*.parquet",  # Escaped format
         f"{data_path}/year=*/month=*/*.parquet", 
-        f"{data_path}/year=*/*.parquet"
+        f"{data_path}/year\\=*/month\\=*/*.parquet",  # Escaped format
+        f"{data_path}/year=*/*.parquet",
+        f"{data_path}/year\\=*/*.parquet"  # Escaped format
     ]
     
+    print(f"🔍 Searching for parquet files in: {data_path}")
+    print("🔍 Search patterns:")
     for pattern in partition_patterns:
+        print(f"   - {pattern}")
         partition_files = glob.glob(pattern)
+        print(f"     Found: {len(partition_files)} files")
+        if partition_files:
+            for f in partition_files[:3]:  # Show first 3 matches
+                print(f"       {f}")
         parquet_files.extend(partition_files)
     
     # Remove duplicates
@@ -557,6 +567,7 @@ def run_validation_pipeline(
     else:
         # Default local validation
         print("🔍 Running local validation...")
+        print(f"📂 Current working directory: {os.getcwd()}")
         results = run_validation_pipeline(mode='local')
     
     # Display results
