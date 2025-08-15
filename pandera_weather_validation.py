@@ -115,16 +115,57 @@ def validate_weather_data_pandera(data_path: str) -> Dict[str, Any]:
     # Create validation schema
     schema = create_weather_data_schema()
     
-    # Find all parquet files
+    # Find all parquet files (including partitioned data)
     if data_path.startswith("s3://"):
         print("❌ S3 reading not implemented - use local path")
         return {"success": False, "error": "S3 paths not supported"}
     
-    parquet_files = glob.glob(f"{data_path}/**/*.parquet", recursive=True)
+    # Check if directory exists
+    if not os.path.exists(data_path):
+        print(f"❌ Directory does not exist: {data_path}")
+        return {"success": False, "error": f"Directory does not exist: {data_path}"}
+    
+    # Look for parquet files in partitioned structure (year=X/month=Y/day=Z/)
+    parquet_files = []
+    
+    # Search for both direct parquet files and partitioned structure
+    direct_files = glob.glob(f"{data_path}/**/*.parquet", recursive=True)
+    parquet_files.extend(direct_files)
+    
+    # Also search for common partition patterns
+    partition_patterns = [
+        f"{data_path}/year=*/month=*/day=*/*.parquet",
+        f"{data_path}/year=*/month=*/*.parquet", 
+        f"{data_path}/year=*/*.parquet"
+    ]
+    
+    for pattern in partition_patterns:
+        partition_files = glob.glob(pattern)
+        parquet_files.extend(partition_files)
+    
+    # Remove duplicates
+    parquet_files = list(set(parquet_files))
     
     if not parquet_files:
         print(f"❌ No parquet files found in {data_path}")
         print(f"🔍 Searched in: {os.path.abspath(data_path)}")
+        print("🔍 Searched patterns:")
+        print(f"   - {data_path}/**/*.parquet")
+        for pattern in partition_patterns:
+            print(f"   - {pattern}")
+        
+        # Show directory structure for debugging
+        print("📂 Directory structure:")
+        for root, dirs, files in os.walk(data_path):
+            level = root.replace(data_path, '').count(os.sep)
+            indent = ' ' * 2 * level
+            print(f"{indent}{os.path.basename(root)}/")
+            subindent = ' ' * 2 * (level + 1)
+            for file in files[:5]:  # Show first 5 files
+                print(f"{subindent}{file}")
+            if len(files) > 5:
+                print(f"{subindent}... and {len(files) - 5} more files")
+        
         return {"success": False, "error": "No parquet files found"}
     
     print(f"📁 Found {len(parquet_files)} parquet files")
