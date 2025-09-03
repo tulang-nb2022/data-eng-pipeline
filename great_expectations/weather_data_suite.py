@@ -4,7 +4,7 @@ from datetime import datetime
 import os
 import json
 import great_expectations as ge
-from great_expectations.data_context import FileDataContext
+from great_expectations.data_context import BaseDataContext
 from great_expectations.core.batch import RuntimeBatchRequest
 import boto3
 from typing import Dict, Any, Optional, List
@@ -14,7 +14,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def create_weather_data_expectation_suite(context: FileDataContext, suite_name: str = "weather_data_suite"):
+def create_weather_data_expectation_suite(context: BaseDataContext, suite_name: str = "weather_data_suite"):
     """Create a comprehensive expectation suite for weather data validation"""
     
     try:
@@ -173,7 +173,7 @@ def validate_weather_data_great_expectations(
     
     # Initialize Great Expectations context
     try:
-        context = FileDataContext(project_root_dir=context_path)
+        context = BaseDataContext(project_root_dir=context_path)
         print("✅ Great Expectations context initialized")
     except Exception as e:
         print(f"❌ Failed to initialize context: {e}")
@@ -247,7 +247,7 @@ def validate_weather_data_great_expectations(
         # Create validator
         validator = context.get_validator(
             batch_request=batch_request,
-            expectation_suite=suite
+            expectation_suite_name=suite_name
         )
         
         # Run validation
@@ -336,18 +336,21 @@ def initialize_great_expectations_project(project_root: str = "great_expectation
     
     try:
         # Initialize Great Expectations context
-        context = FileDataContext(project_root_dir=project_root)
+        context = BaseDataContext(project_root_dir=project_root)
         
-        # Create datasource configuration
+        # Create datasource configuration for v0.15.2
         datasource_config = {
             "name": "pandas_datasource",
             "class_name": "Datasource",
+            "module_name": "great_expectations.datasource",
             "execution_engine": {
-                "class_name": "PandasExecutionEngine"
+                "class_name": "PandasExecutionEngine",
+                "module_name": "great_expectations.execution_engine"
             },
             "data_connectors": {
                 "default_runtime_data_connector_name": {
                     "class_name": "RuntimeDataConnector",
+                    "module_name": "great_expectations.datasource.data_connector",
                     "batch_identifiers": ["default_identifier_name"]
                 }
             }
