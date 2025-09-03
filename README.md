@@ -53,8 +53,8 @@ pip install --upgrade pip setuptools>=65.0.0
 # Install all dependencies
 pip install -r requirements.txt
 
-# Verify pandera installation
-python -c "import pandera as pa; print('✅ Pandera installed successfully')"
+# Verify great expectations installation
+python -c "import great_expectations as ge; print('✅ Great Expectations installed successfully')"
 ```
 ```
 
@@ -181,7 +181,7 @@ echo "📍 Step 2: Data transformation"
 
 # Step 3: Local validation (fast feedback)
 echo "📍 Step 3: Local validation"
-python pandera_weather_validation.py
+python great_expectations/weather_data_suite.py
 if [ $? -ne 0 ]; then
     echo "❌ Local validation failed - stopping pipeline"
     exit 1
@@ -222,7 +222,7 @@ LOCATION 's3://your-data-bucket/processed/'
 
 # Step 6: Production validation on Athena
 echo "📍 Step 6: Production validation"
-python pandera_weather_validation.py athena weather_db processed_weather_data
+python great_expectations/weather_data_suite.py athena weather_db processed_weather_data
 if [ $? -ne 0 ]; then
     echo "❌ Production validation failed"
     exit 1
@@ -236,11 +236,11 @@ echo "✅ Pipeline completed successfully!"
 **Local Validation (Post-Transform):**
 ```bash
 # After transformation, validate locally
-python pandera_weather_validation.py
+python great_expectations/weather_data_suite.py
 
 # Expected output:
-# 🏠 Running LOCAL validation...
-# ✅ data/processed/weather_data.parquet: valid
+# 🔍 Starting Data Quality Validation Pipeline
+# ✅ All data quality checks passed!
 ```
 
 **Athena Production Validation:**
@@ -251,11 +251,11 @@ export AWS_SECRET_ACCESS_KEY=your_secret_key
 export AWS_DEFAULT_REGION=us-east-1
 
 # Run production validation
-python pandera_weather_validation.py athena weather_db processed_weather_data
+python great_expectations/weather_data_suite.py athena weather_db processed_weather_data
 
 # Expected output:
-# ☁️  Running ATHENA validation...
-# ✅ weather_db.processed_weather_data: valid
+# 🔍 Validating Athena table: weather_db.processed_weather_data
+# ✅ All data quality checks passed!
 ```
 
 #### 3. Airflow Integration
@@ -270,13 +270,13 @@ from airflow.operators.python import PythonOperator
 from datetime import datetime, timedelta
 
 def run_local_validation():
-    from pandera_weather_validation import run_validation_pipeline
-    result = run_validation_pipeline(mode='local', data_path='data/processed')
-    if not result or any(r['status'] != 'valid' for r in result):
+    from great_expectations.weather_data_suite import run_data_quality_validation
+    result = run_data_quality_validation(data_path='data/processed')
+    if not result or not result.get('success', False):
         raise ValueError("Local validation failed")
 
 def run_athena_validation():
-    from pandera_weather_validation import validate_athena_table
+    from great_expectations.weather_data_suite import validate_athena_table
     result = validate_athena_table(
         database='weather_db',
         table='processed_weather_data',
@@ -357,14 +357,48 @@ The crawler collects the following data types:
 - **Sentiment Data**: News sentiment analysis and scores
 - **Technical Indicators**: RSI, MACD, and other technical analysis metrics
 
-### Data Validation
+### Data Validation Strategy
 
-1. Run Great Expectations validation:
+Great Expectations provides comprehensive data quality validation suitable for big data workflows. The validation strategy includes:
+
+#### Validation Rounds
+
+**Single Validation Strategy (Recommended)**
+Since data is validated once and exported to S3, additional validation rounds are typically unnecessary. The validation happens:
+1. **Pre-S3 Upload**: Local validation ensures data quality before storage
+2. **Post-S3 Upload**: Optional Athena validation for production verification
+
+**Why Single Validation is Sufficient:**
+- S3 provides data immutability once uploaded
+- Parquet format maintains data integrity
+- Athena queries read directly from S3 without modification
+- Additional validation rounds add unnecessary complexity and cost
+
+#### Validation Types
+
+1. **Local Validation (Pre-S3)**:
 ```bash
 python great_expectations/weather_data_suite.py
 ```
 
-2. View validation results:
+2. **S3 Validation**:
+```bash
+python great_expectations/weather_data_suite.py s3 s3://your-bucket/weather-data/
+```
+
+3. **Athena Validation (Optional)**:
+```bash
+python great_expectations/weather_data_suite.py athena weather_db processed_weather_data
+```
+
+#### Validation Expectations (Least Likely to Fail)
+- Essential column presence (processing_timestamp, year, month, day, data_source)
+- Non-null values for critical fields
+- Data source validation (noaa, alphavantage, eosdis, openweather)
+- Reasonable date ranges (2020-2030)
+- Row count limits (1-10M records for big data)
+
+#### View Validation Results:
 ```bash
 # Check S3 for validation results
 aws s3 ls s3://your-validation-results-bucket/

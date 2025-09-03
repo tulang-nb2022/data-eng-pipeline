@@ -5,10 +5,11 @@ numpy==1.26.0
 scipy==1.11.4
 pyyaml==6.0.1
 python-dotenv==1.0.0
-pandera==0.19.3
+great-expectations==0.15.2
 multimethod==1.10.0
 typing-extensions>=4.8.0
 setuptools>=65.0.0
 PyAthena==3.0.10
 boto3>=1.26.0
+s3fs>=2023.1.0
 

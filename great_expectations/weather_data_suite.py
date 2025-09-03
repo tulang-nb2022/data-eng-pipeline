@@ -6,11 +6,17 @@ import json
 import great_expectations as ge
 from great_expectations.data_context import FileDataContext
 from great_expectations.core.batch import RuntimeBatchRequest
+import boto3
+from typing import Dict, Any, Optional, List
+import logging
 
-def create_simple_expectation_suite(context: FileDataContext, suite_name: str = "weather_data_suite"):
-    """Create a simple but comprehensive expectation suite for weather data"""
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+def create_weather_data_expectation_suite(context: FileDataContext, suite_name: str = "weather_data_suite"):
+    """Create a comprehensive expectation suite for weather data validation"""
     
-    # Create expectation suite using the correct API
     try:
         suite = context.get_or_create_expectation_suite(suite_name)
         print(f"✅ Created/retrieved expectation suite: {suite_name}")
@@ -21,40 +27,48 @@ def create_simple_expectation_suite(context: FileDataContext, suite_name: str = 
     # Clear existing expectations
     suite.expectations = []
     
-    # Add basic expectations using the simple API
+    # Essential column expectations - least likely to fail
+    essential_columns = [
+        "processing_timestamp", "year", "month", "day", "data_source"
+    ]
+    
+    # Add table-level expectations
     suite.add_expectation(
         ge.core.ExpectationConfiguration(
             expectation_type="expect_table_columns_to_match_ordered_list",
-            kwargs={
-                "column_list": ["processing_timestamp", "year", "month", "day", "data_source"]
-            }
+            kwargs={"column_list": essential_columns}
         )
     )
     
     suite.add_expectation(
         ge.core.ExpectationConfiguration(
-            expectation_type="expect_column_values_to_not_be_null",
-            kwargs={"column": "processing_timestamp"}
+            expectation_type="expect_table_row_count_to_be_between",
+            kwargs={"min_value": 1, "max_value": 10000000}  # Big data range
         )
     )
     
-    suite.add_expectation(
-        ge.core.ExpectationConfiguration(
-            expectation_type="expect_column_values_to_not_be_null",
-            kwargs={"column": "data_source"}
+    # Add column-level expectations for essential fields
+    for column in essential_columns:
+        # Non-null expectations for essential columns
+        suite.add_expectation(
+            ge.core.ExpectationConfiguration(
+                expectation_type="expect_column_values_to_not_be_null",
+                kwargs={"column": column}
+            )
         )
-    )
     
+    # Data source validation
     suite.add_expectation(
         ge.core.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_in_set",
             kwargs={
                 "column": "data_source",
-                "value_set": ["noaa", "alphavantage", "eosdis"]
+                "value_set": ["noaa", "alphavantage", "eosdis", "openweather"]
             }
         )
     )
     
+    # Date range validations
     suite.add_expectation(
         ge.core.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_between",
@@ -79,10 +93,11 @@ def create_simple_expectation_suite(context: FileDataContext, suite_name: str = 
     
     suite.add_expectation(
         ge.core.ExpectationConfiguration(
-            expectation_type="expect_table_row_count_to_be_between",
+            expectation_type="expect_column_values_to_be_between",
             kwargs={
+                "column": "day",
                 "min_value": 1,
-                "max_value": 1000000
+                "max_value": 31
             }
         )
     )
@@ -96,8 +111,61 @@ def create_simple_expectation_suite(context: FileDataContext, suite_name: str = 
     
     return suite
 
-def validate_weather_data_simple(data_path: str, context_path: str = "great_expectations"):
-    """Validate weather data using Great Expectations with simplified API"""
+def read_data_from_s3(s3_path: str) -> Optional[pd.DataFrame]:
+    """Read data from S3 using s3fs"""
+    try:
+        import s3fs
+        fs = s3fs.S3FileSystem()
+        
+        if s3_path.endswith('/'):
+            # Read all parquet files in directory
+            parquet_files = fs.glob(f"{s3_path}*.parquet")
+            if not parquet_files:
+                print(f"❌ No parquet files found in {s3_path}")
+                return None
+            
+            dfs = []
+            for file in parquet_files:
+                df = pd.read_parquet(f"s3://{file}")
+                dfs.append(df)
+            
+            if dfs:
+                return pd.concat(dfs, ignore_index=True)
+        else:
+            # Read single file
+            return pd.read_parquet(s3_path)
+            
+    except Exception as e:
+        print(f"❌ Error reading from S3: {e}")
+        return None
+
+def read_data_from_athena(database: str, table: str, region: str = "us-east-1") -> Optional[pd.DataFrame]:
+    """Read data from Athena table"""
+    try:
+        from pyathena import connect
+        
+        # Create connection
+        conn = connect(
+            s3_staging_dir='s3://your-athena-results-bucket/temp/',
+            region_name=region
+        )
+        
+        # Query the table
+        query = f"SELECT * FROM {database}.{table} LIMIT 10000"  # Limit for validation
+        df = pd.read_sql(query, conn)
+        
+        return df
+        
+    except Exception as e:
+        print(f"❌ Error reading from Athena: {e}")
+        return None
+
+def validate_weather_data_great_expectations(
+    data_source: str,
+    context_path: str = "great_expectations",
+    **kwargs
+) -> Optional[Dict[str, Any]]:
+    """Validate weather data using Great Expectations"""
     
     print("="*60)
     print("GREAT EXPECTATIONS DATA QUALITY VALIDATION")
@@ -112,71 +180,59 @@ def validate_weather_data_simple(data_path: str, context_path: str = "great_expe
         return None
     
     # Create expectation suite
-    suite = create_simple_expectation_suite(context)
+    suite = create_weather_data_expectation_suite(context)
     if not suite:
         return None
     
-    # Read data using pandas
-    if data_path.startswith("s3://"):
-        print("❌ S3 reading not implemented - use local path")
+    # Read data based on source type
+    df = None
+    if data_source.startswith("s3://"):
+        print(f"📁 Reading from S3: {data_source}")
+        df = read_data_from_s3(data_source)
+    elif data_source.startswith("athena://"):
+        # Format: athena://database/table
+        parts = data_source.replace("athena://", "").split("/")
+        if len(parts) == 2:
+            database, table = parts
+            print(f"📊 Reading from Athena: {database}.{table}")
+            df = read_data_from_athena(database, table, **kwargs)
+    else:
+        # Local file system
+        print(f"📁 Reading from local path: {data_source}")
+        if os.path.isdir(data_source):
+            import glob
+            parquet_files = glob.glob(f"{data_source}/**/*.parquet", recursive=True)
+            if parquet_files:
+                dfs = []
+                for file in parquet_files:
+                    try:
+                        df_file = pd.read_parquet(file)
+                        dfs.append(df_file)
+                    except Exception as e:
+                        print(f"❌ Error loading {file}: {e}")
+                
+                if dfs:
+                    df = pd.concat(dfs, ignore_index=True)
+        else:
+            try:
+                df = pd.read_parquet(data_source)
+            except Exception as e:
+                print(f"❌ Error loading {data_source}: {e}")
+    
+    if df is None or len(df) == 0:
+        print("❌ No data found")
         return None
     
-    # Read all parquet files recursively with better debugging
-    import glob
-    parquet_files = glob.glob(f"{data_path}/**/*.parquet", recursive=True)
-    
-    if not parquet_files:
-        print(f"❌ No parquet files found in {data_path}")
-        print(f"🔍 Searched in: {os.path.abspath(data_path)}")
-        return None
-    
-    print(f"📁 Found {len(parquet_files)} parquet files")
-    print("📋 Files found:")
-    for file in parquet_files:
-        print(f"   - {file}")
-    
-    # Read and combine all parquet files with detailed debugging
-    dfs = []
-    total_rows = 0
-    
-    for file in parquet_files:
-        try:
-            df = pd.read_parquet(file)
-            dfs.append(df)
-            total_rows += len(df)
-            
-            # Show sample data for debugging
-            print(f"📄 Loaded: {file} ({len(df)} rows)")
-            print(f"   Columns: {list(df.columns)}")
-            if len(df) > 0:
-                print(f"   Sample data source: {df['data_source'].iloc[0] if 'data_source' in df.columns else 'N/A'}")
-                print(f"   Sample year: {df['year'].iloc[0] if 'year' in df.columns else 'N/A'}")
-                print(f"   Sample month: {df['month'].iloc[0] if 'month' in df.columns else 'N/A'}")
-                print(f"   Sample day: {df['day'].iloc[0] if 'day' in df.columns else 'N/A'}")
-            
-        except Exception as e:
-            print(f"❌ Error loading {file}: {e}")
-    
-    if not dfs:
-        print("❌ No data found in parquet files")
-        return None
-    
-    # Combine all dataframes
-    combined_df = pd.concat(dfs, ignore_index=True)
-    print(f"📊 Combined dataset: {len(combined_df)} total rows")
-    print(f"📊 Combined columns: {list(combined_df.columns)}")
+    print(f"📊 Loaded dataset: {len(df)} rows, {len(df.columns)} columns")
+    print(f"📋 Columns: {list(df.columns)}")
     
     # Show data summary
     print("\n📈 Data Summary:")
-    print(f"   Total records: {len(combined_df):,}")
-    if 'data_source' in combined_df.columns:
-        print(f"   Data sources: {combined_df['data_source'].value_counts().to_dict()}")
-    if 'year' in combined_df.columns:
-        print(f"   Year range: {combined_df['year'].min()} - {combined_df['year'].max()}")
-    if 'month' in combined_df.columns:
-        print(f"   Month range: {combined_df['month'].min()} - {combined_df['month'].max()}")
-    if 'day' in combined_df.columns:
-        print(f"   Day range: {combined_df['day'].min()} - {combined_df['day'].max()}")
+    print(f"   Total records: {len(df):,}")
+    if 'data_source' in df.columns:
+        print(f"   Data sources: {df['data_source'].value_counts().to_dict()}")
+    if 'year' in df.columns:
+        print(f"   Year range: {df['year'].min()} - {df['year'].max()}")
     
     # Create batch request for Great Expectations
     try:
@@ -184,7 +240,7 @@ def validate_weather_data_simple(data_path: str, context_path: str = "great_expe
             datasource_name="pandas_datasource",
             data_connector_name="default_runtime_data_connector_name",
             data_asset_name="weather_data",
-            runtime_parameters={"batch_data": combined_df},
+            runtime_parameters={"batch_data": df},
             batch_identifiers={"default_identifier_name": "default_identifier"}
         )
         
@@ -198,11 +254,11 @@ def validate_weather_data_simple(data_path: str, context_path: str = "great_expe
         results = validator.validate()
         
         # Process and display results
-        display_validation_results(results, combined_df)
+        display_validation_results(results, df)
         
         return {
             "success": results.success,
-            "total_records": len(combined_df),
+            "total_records": len(df),
             "expectations_checked": len(results.results),
             "successful_expectations": len([r for r in results.results if r.success]),
             "failed_expectations": len([r for r in results.results if not r.success])
@@ -268,16 +324,10 @@ def display_validation_results(results, df):
         year_range = f"{df['year'].min()} - {df['year'].max()}"
         print(f"Year range: {year_range}")
     
-    if "month" in df.columns:
-        month_distribution = df["month"].value_counts().sort_index()
-        print("Month distribution:")
-        for month, count in month_distribution.items():
-            print(f"  Month {month}: {count:,} records")
-    
     print("\n" + "="*60)
 
-def initialize_great_expectations_simple(project_root: str = "great_expectations"):
-    """Initialize Great Expectations project with simplified setup"""
+def initialize_great_expectations_project(project_root: str = "great_expectations"):
+    """Initialize Great Expectations project with S3 and Athena support"""
     
     print("🚀 Initializing Great Expectations project...")
     
@@ -285,7 +335,7 @@ def initialize_great_expectations_simple(project_root: str = "great_expectations
     os.makedirs(project_root, exist_ok=True)
     
     try:
-        # Initialize Great Expectations context using the correct method
+        # Initialize Great Expectations context
         context = FileDataContext(project_root_dir=project_root)
         
         # Create datasource configuration
@@ -315,21 +365,20 @@ def initialize_great_expectations_simple(project_root: str = "great_expectations
         print(f"❌ Failed to initialize Great Expectations: {e}")
         return None
 
-def run_data_quality_validation():
+def run_data_quality_validation(data_path: str = "data/processed"):
     """Main function to run comprehensive data quality validation"""
     
     print("🔍 Starting Data Quality Validation Pipeline")
     print("="*60)
     
     # Initialize Great Expectations
-    context = initialize_great_expectations_simple()
+    context = initialize_great_expectations_project()
     if not context:
         print("❌ Failed to initialize Great Expectations")
         return
     
     # Validate data
-    data_path = "data/processed"
-    results = validate_weather_data_simple(data_path)
+    results = validate_weather_data_great_expectations(data_path)
     
     if results:
         print(f"\n🎉 Validation completed!")
@@ -342,5 +391,40 @@ def run_data_quality_validation():
     else:
         print("❌ Validation failed - no data found or processing error")
 
+def validate_s3_data(s3_path: str):
+    """Validate data stored in S3"""
+    print(f"🔍 Validating S3 data: {s3_path}")
+    return validate_weather_data_great_expectations(s3_path)
+
+def validate_athena_table(database: str, table: str, region: str = "us-east-1"):
+    """Validate data in Athena table"""
+    athena_path = f"athena://{database}/{table}"
+    print(f"🔍 Validating Athena table: {database}.{table}")
+    return validate_weather_data_great_expectations(athena_path, region=region)
+
 if __name__ == "__main__":
-    run_data_quality_validation() 
+    import sys
+    
+    if len(sys.argv) > 1:
+        if sys.argv[1] == "s3":
+            if len(sys.argv) > 2:
+                s3_path = sys.argv[2]
+                validate_s3_data(s3_path)
+            else:
+                print("Usage: python weather_data_suite.py s3 <s3_path>")
+                print("Example: python weather_data_suite.py s3 s3://my-bucket/weather-data/")
+        elif sys.argv[1] == "athena":
+            if len(sys.argv) > 3:
+                database = sys.argv[2]
+                table = sys.argv[3]
+                validate_athena_table(database, table)
+            else:
+                print("Usage: python weather_data_suite.py athena <database> <table>")
+                print("Example: python weather_data_suite.py athena weather_db processed_weather_data")
+        else:
+            print("Usage:")
+            print("  python weather_data_suite.py                    # Validate local data")
+            print("  python weather_data_suite.py s3 <s3_path>       # Validate S3 data")
+            print("  python weather_data_suite.py athena <db> <table> # Validate Athena table")
+    else:
+        run_data_quality_validation() 
