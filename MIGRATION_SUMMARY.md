@@ -38,7 +38,7 @@ Successfully migrated from Pandera to Great Expectations version 0.15.2 for big 
 ### Validation Expectations (Least Likely to Fail)
 - Essential column presence (processing_timestamp, year, month, day, data_source)
 - Non-null values for critical fields
-- Data source validation (noaa, alphavantage, eosdis, openweather)
+- Data source validation (noaa)
 - Reasonable date ranges (2020-2030)
 - Row count limits (1-10M records for big data)
 

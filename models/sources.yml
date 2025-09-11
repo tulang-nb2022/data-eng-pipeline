@@ -1,0 +1,47 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Bronze layer data from Delta Lake tables"
+    tables:
+      - name: weather_data
+        description: "Raw weather data ingested from Kafka"
+        columns:
+          - name: temperature
+            description: "Temperature in Celsius"
+            tests:
+              - not_null
+          - name: wind_speed
+            description: "Wind speed measurement"
+          - name: city
+            description: "City name"
+            tests:
+              - not_null
+          - name: timestamp
+            description: "Original timestamp from source"
+          - name: humidity
+            description: "Humidity percentage"
+          - name: pressure
+            description: "Atmospheric pressure in hPa"
+          - name: visibility
+            description: "Visibility in km"
+          - name: processing_timestamp
+            description: "When the data was processed"
+            tests:
+              - not_null
+          - name: hour
+            description: "Hour of processing"
+          - name: minute
+            description: "Minute of processing"
+          - name: data_source
+            description: "Source of the data (noaa)"
+            tests:
+              - not_null
+              - accepted_values:
+                  values: ['noaa']
+          - name: kafka_offset
+            description: "Kafka offset for tracking"
+          - name: kafka_partition
+            description: "Kafka partition"
+          - name: kafka_timestamp
+            description: "Kafka timestamp"

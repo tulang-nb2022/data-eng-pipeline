@@ -22,8 +22,13 @@ def create_simple_expectations(df: pd.DataFrame) -> List[Dict]:
     
     expectations = []
     
-    # Essential columns check
-    essential_columns = ["processing_timestamp", "year", "month", "day", "data_source"]
+    # Essential columns check - updated for silver layer
+    essential_columns = [
+        "temperature", "wind_speed", "city", "timestamp", "humidity", "pressure", "visibility",
+        "processing_timestamp", "hour", "minute", "data_source", "year", "month", "day",
+        "quality_score", "is_valid", "weather_category", "data_freshness_hours",
+        "kafka_offset", "kafka_partition", "kafka_timestamp"
+    ]
     expectations.append({
         "expectation_type": "expect_table_columns_to_match_ordered_list",
         "kwargs": {"column_list": essential_columns}
@@ -49,7 +54,7 @@ def create_simple_expectations(df: pd.DataFrame) -> List[Dict]:
             "expectation_type": "expect_column_values_to_be_in_set",
             "kwargs": {
                 "column": "data_source",
-                "value_set": ["noaa", "alphavantage", "eosdis", "openweather"]
+                "value_set": ["noaa"]
             }
         })
     
@@ -70,6 +75,34 @@ def create_simple_expectations(df: pd.DataFrame) -> List[Dict]:
         expectations.append({
             "expectation_type": "expect_column_values_to_be_between",
             "kwargs": {"column": "day", "min_value": 1, "max_value": 31}
+        })
+    
+    # Silver layer specific validations
+    if "quality_score" in df.columns:
+        expectations.append({
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {"column": "quality_score", "min_value": 0.0, "max_value": 1.0}
+        })
+    
+    if "is_valid" in df.columns:
+        expectations.append({
+            "expectation_type": "expect_column_values_to_be_in_set",
+            "kwargs": {"column": "is_valid", "value_set": [True, False]}
+        })
+    
+    if "weather_category" in df.columns:
+        expectations.append({
+            "expectation_type": "expect_column_values_to_be_in_set",
+            "kwargs": {
+                "column": "weather_category", 
+                "value_set": ["HOT", "COLD", "WINDY", "FOGGY", "NORMAL"]
+            }
+        })
+    
+    if "data_freshness_hours" in df.columns:
+        expectations.append({
+            "expectation_type": "expect_column_values_to_be_between",
+            "kwargs": {"column": "data_freshness_hours", "min_value": 0, "max_value": 168}  # Max 1 week
         })
     
     return expectations

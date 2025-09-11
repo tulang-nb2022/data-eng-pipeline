@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Data Lakehouse Pipeline Runner
+# Supports Bronze, Silver, and Gold layers with Delta Lake
+
 # Add assembly plugin to project/plugins.sbt if it doesn't exist
 if [ ! -f "project/plugins.sbt" ]; then
   mkdir -p project
@@ -7,7 +10,7 @@ if [ ! -f "project/plugins.sbt" ]; then
 fi
 
 # Build the Scala project
-echo "Building Scala project with Spark 4.0.0 and Scala 2.13..."
+echo "Building Data Lakehouse Pipeline with Spark 4.0.0 and Delta Lake..."
 sbt clean assembly
 
 # Check if build was successful
@@ -16,63 +19,155 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "Build successful! Starting transformation job..."
+echo "Build successful! Starting Data Lakehouse Pipeline..."
 
-# Set environment variables as needed
+# Set default values
+MODE=${1:-"bronze"}
+KAFKA_TOPIC=${2:-"weather-forecast"}
+SOURCE_TYPE=${3:-"noaa"}
+BRONZE_S3_PATH=${4:-"s3://your-data-bucket/bronze/weather"}
+SILVER_S3_PATH=${5:-"s3://your-data-bucket/silver/weather"}
+GOLD_S3_PATH=${6:-"s3://your-data-bucket/gold/weather"}
 
-# Check if using Kafka or file input
-if [ "$1" = "kafka" ]; then
-  # Kafka streaming mode
-  KAFKA_TOPIC=${2:-"weather-forecast"}
-  SOURCE_TYPE=${3:-"noaa"}
-  OUTPUT_PATH=${4:-"data/processed"}
-  
-  echo "Using Kafka streaming mode with Spark 4.0.0"
-  echo "Kafka topic: $KAFKA_TOPIC"
-  echo "Source type: $SOURCE_TYPE"
-  echo "Output path: $OUTPUT_PATH"
-  
-  # Run the transformation job with Kafka
-  $SPARK_HOME/bin/spark-submit \
-    --class transform.DataTransformerApp \
-    --master local[*] \
-    --driver-memory 2g \
-    --executor-memory 4g \
-    --conf spark.driver.extraJavaOptions="--add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED" \
-    --conf spark.executor.extraJavaOptions="--add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED" \
-    --conf spark.sql.adaptive.enabled=true \
-    --conf spark.sql.adaptive.coalescePartitions.enabled=true \
-    --conf spark.sql.streaming.checkpointLocation=data/checkpoint \
-    --packages org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0 \
-    target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
-    "$KAFKA_TOPIC" \
-    "$SOURCE_TYPE" \
-    "$OUTPUT_PATH"
-else
-  # File-based batch mode (for testing)
-  INPUT_PATH=${1:-"data/raw"}
-  SOURCE_TYPE=${2:-"noaa"}
-  OUTPUT_PATH=${3:-"data/processed"}
-  
-  echo "Using file-based batch mode with Spark 4.0.0"
-  echo "Input path: $INPUT_PATH"
-  echo "Source type: $SOURCE_TYPE"
-  echo "Output path: $OUTPUT_PATH"
-  
-  # Run the transformation job with files
-  $SPARK_HOME/bin/spark-submit \
-    --class transform.DataTransformerApp \
-    --master local[*] \
-    --driver-memory 2g \
-    --executor-memory 4g \
-    --conf spark.driver.extraJavaOptions="--add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED" \
-    --conf spark.executor.extraJavaOptions="--add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED" \
-    --conf spark.sql.adaptive.enabled=true \
-    --conf spark.sql.adaptive.coalescePartitions.enabled=true \
-    target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
-    "$INPUT_PATH" \
-    "$SOURCE_TYPE" \
-    "$OUTPUT_PATH"
-fi
+echo "=========================================="
+echo "Data Lakehouse Pipeline Configuration"
+echo "=========================================="
+echo "Mode: $MODE"
+echo "Kafka Topic: $KAFKA_TOPIC"
+echo "Source Type: $SOURCE_TYPE"
+echo "Bronze S3 Path: $BRONZE_S3_PATH"
+echo "Silver S3 Path: $SILVER_S3_PATH"
+echo "Gold S3 Path: $GOLD_S3_PATH"
+echo "=========================================="
 
-echo "Transformation complete!" 
+# Common Spark configuration
+SPARK_CONF=(
+  "--master" "local[*]"
+  "--driver-memory" "2g"
+  "--executor-memory" "4g"
+  "--conf" "spark.driver.extraJavaOptions=--add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED"
+  "--conf" "spark.executor.extraJavaOptions=--add-opens=java.base/sun.nio.ch=ALL-UNNAMED --add-opens=java.base/sun.misc=ALL-UNNAMED --add-opens=java.base/java.lang=ALL-UNNAMED"
+  "--conf" "spark.sql.adaptive.enabled=true"
+  "--conf" "spark.sql.adaptive.coalescePartitions.enabled=true"
+  "--conf" "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension"
+  "--conf" "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog"
+  "--conf" "spark.sql.streaming.checkpointLocation=data/checkpoint"
+)
+
+# Delta Lake and Kafka packages
+PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,io.delta:delta-core_2.13:4.0.0"
+
+# Run the appropriate layer
+case $MODE in
+  "bronze")
+    echo "Starting Bronze Layer - Raw data ingestion from Kafka..."
+    $SPARK_HOME/bin/spark-submit \
+      "${SPARK_CONF[@]}" \
+      --packages "$PACKAGES" \
+      --class transform.DataTransformerApp \
+      target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
+      "$MODE" \
+      "$KAFKA_TOPIC" \
+      "$SOURCE_TYPE" \
+      "$BRONZE_S3_PATH" \
+      "$SILVER_S3_PATH" \
+      "$GOLD_S3_PATH"
+    ;;
+    
+  "silver")
+    echo "Starting Silver Layer - Data cleaning and enrichment..."
+    $SPARK_HOME/bin/spark-submit \
+      "${SPARK_CONF[@]}" \
+      --packages "io.delta:delta-core_2.13:4.0.0" \
+      --class transform.DataTransformerApp \
+      target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
+      "$MODE" \
+      "$KAFKA_TOPIC" \
+      "$SOURCE_TYPE" \
+      "$BRONZE_S3_PATH" \
+      "$SILVER_S3_PATH" \
+      "$GOLD_S3_PATH"
+    ;;
+    
+  "gold")
+    echo "Starting Gold Layer - Aggregated metrics..."
+    $SPARK_HOME/bin/spark-submit \
+      "${SPARK_CONF[@]}" \
+      --packages "io.delta:delta-core_2.13:4.0.0" \
+      --class transform.DataTransformerApp \
+      target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
+      "$MODE" \
+      "$KAFKA_TOPIC" \
+      "$SOURCE_TYPE" \
+      "$BRONZE_S3_PATH" \
+      "$SILVER_S3_PATH" \
+      "$GOLD_S3_PATH"
+    ;;
+    
+  "all")
+    echo "Running complete pipeline: Bronze -> Silver -> Gold"
+    
+    echo "Step 1: Bronze Layer..."
+    $SPARK_HOME/bin/spark-submit \
+      "${SPARK_CONF[@]}" \
+      --packages "$PACKAGES" \
+      --class transform.DataTransformerApp \
+      target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
+      "bronze" \
+      "$KAFKA_TOPIC" \
+      "$SOURCE_TYPE" \
+      "$BRONZE_S3_PATH" \
+      "$SILVER_S3_PATH" \
+      "$GOLD_S3_PATH" &
+    
+    BRONZE_PID=$!
+    sleep 30  # Let bronze layer run for 30 seconds
+    
+    echo "Step 2: Silver Layer..."
+    $SPARK_HOME/bin/spark-submit \
+      "${SPARK_CONF[@]}" \
+      --packages "io.delta:delta-core_2.13:4.0.0" \
+      --class transform.DataTransformerApp \
+      target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
+      "silver" \
+      "$KAFKA_TOPIC" \
+      "$SOURCE_TYPE" \
+      "$BRONZE_S3_PATH" \
+      "$SILVER_S3_PATH" \
+      "$GOLD_S3_PATH"
+    
+    echo "Step 3: Gold Layer..."
+    $SPARK_HOME/bin/spark-submit \
+      "${SPARK_CONF[@]}" \
+      --packages "io.delta:delta-core_2.13:4.0.0" \
+      --class transform.DataTransformerApp \
+      target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
+      "gold" \
+      "$KAFKA_TOPIC" \
+      "$SOURCE_TYPE" \
+      "$BRONZE_S3_PATH" \
+      "$SILVER_S3_PATH" \
+      "$GOLD_S3_PATH"
+    
+    # Stop bronze layer
+    kill $BRONZE_PID 2>/dev/null
+    ;;
+    
+  *)
+    echo "Usage: $0 <mode> [kafka_topic] [source_type] [bronze_s3_path] [silver_s3_path] [gold_s3_path]"
+    echo ""
+    echo "Modes:"
+    echo "  bronze  - Raw data ingestion from Kafka to S3 (streaming)"
+    echo "  silver  - Data cleaning and enrichment (batch)"
+    echo "  gold    - Aggregated metrics (batch)"
+    echo "  all     - Run complete pipeline"
+    echo ""
+    echo "Examples:"
+    echo "  $0 bronze weather-forecast noaa s3://my-bucket/bronze/weather"
+    echo "  $0 silver weather-forecast noaa s3://my-bucket/bronze/weather s3://my-bucket/silver/weather"
+    echo "  $0 all weather-forecast noaa s3://my-bucket/bronze/weather s3://my-bucket/silver/weather s3://my-bucket/gold/weather"
+    exit 1
+    ;;
+esac
+
+echo "Data Lakehouse Pipeline completed!" 

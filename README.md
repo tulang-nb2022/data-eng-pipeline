@@ -143,11 +143,8 @@ chmod +x run_transform.sh
 # For weather data
 ./run_transform.sh weather-forecast noaa data/processed
 
-# For financial data
-./run_transform.sh financial-data alphavantage data/processed
-
-# For EOSDIS data
-./run_transform.sh eosdis-data eosdis data/processed
+# For NOAA weather data
+./run_transform.sh weather-forecast noaa data/processed
 ```
 
 The streaming transformation job will:
@@ -394,7 +391,7 @@ python great_expectations/weather_data_suite.py athena weather_db processed_weat
 #### Validation Expectations (Least Likely to Fail)
 - Essential column presence (processing_timestamp, year, month, day, data_source)
 - Non-null values for critical fields
-- Data source validation (noaa, alphavantage, eosdis, openweather)
+- Data source validation (noaa)
 - Reasonable date ranges (2020-2030)
 - Row count limits (1-10M records for big data)
 
