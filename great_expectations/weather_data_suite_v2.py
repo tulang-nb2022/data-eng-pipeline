@@ -50,12 +50,12 @@ def create_weather_data_expectation_suite(context: BaseDataContext, suite_name: 
     # Add column-level expectations for essential fields
     for column in essential_columns:
         # Non-null expectations for essential columns
-    suite.add_expectation(
-        ge.core.ExpectationConfiguration(
-            expectation_type="expect_column_values_to_not_be_null",
+        suite.add_expectation(
+            ge.core.ExpectationConfiguration(
+                expectation_type="expect_column_values_to_not_be_null",
                 kwargs={"column": column}
             )
-    )
+        )
     
     # Data source validation
     suite.add_expectation(
@@ -200,17 +200,17 @@ def validate_weather_data_great_expectations(
         # Local file system
         print(f"📁 Reading from local path: {data_source}")
         if os.path.isdir(data_source):
-    import glob
+            import glob
             parquet_files = glob.glob(f"{data_source}/**/*.parquet", recursive=True)
             if parquet_files:
-    dfs = []
-    for file in parquet_files:
-        try:
+                dfs = []
+                for file in parquet_files:
+                    try:
                         df_file = pd.read_parquet(file)
                         dfs.append(df_file)
-        except Exception as e:
-            print(f"❌ Error loading {file}: {e}")
-    
+                    except Exception as e:
+                        print(f"❌ Error loading {file}: {e}")
+                
                 if dfs:
                     df = pd.concat(dfs, ignore_index=True)
         else:
@@ -247,7 +247,7 @@ def validate_weather_data_great_expectations(
         # Create validator
         validator = context.get_validator(
             batch_request=batch_request,
-            expectation_suite_name=suite_name
+            expectation_suite_name="weather_data_suite"
         )
         
         # Run validation
@@ -414,20 +414,20 @@ if __name__ == "__main__":
                 s3_path = sys.argv[2]
                 validate_s3_data(s3_path)
             else:
-                print("Usage: python weather_data_suite.py s3 <s3_path>")
-                print("Example: python weather_data_suite.py s3 s3://my-bucket/weather-data/")
+                print("Usage: python weather_data_suite_v2.py s3 <s3_path>")
+                print("Example: python weather_data_suite_v2.py s3 s3://my-bucket/weather-data/")
         elif sys.argv[1] == "athena":
             if len(sys.argv) > 3:
                 database = sys.argv[2]
                 table = sys.argv[3]
                 validate_athena_table(database, table)
             else:
-                print("Usage: python weather_data_suite.py athena <database> <table>")
-                print("Example: python weather_data_suite.py athena weather_db processed_weather_data")
+                print("Usage: python weather_data_suite_v2.py athena <database> <table>")
+                print("Example: python weather_data_suite_v2.py athena weather_db processed_weather_data")
         else:
             print("Usage:")
-            print("  python weather_data_suite.py                    # Validate local data")
-            print("  python weather_data_suite.py s3 <s3_path>       # Validate S3 data")
-            print("  python weather_data_suite.py athena <db> <table> # Validate Athena table")
+            print("  python weather_data_suite_v2.py                    # Validate local data")
+            print("  python weather_data_suite_v2.py s3 <s3_path>       # Validate S3 data")
+            print("  python weather_data_suite_v2.py athena <db> <table> # Validate Athena table")
     else:
-    run_data_quality_validation() 
+        run_data_quality_validation()
