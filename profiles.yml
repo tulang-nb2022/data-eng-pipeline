@@ -1,12 +1,20 @@
-financial_analytics:
+data_engineering_project:
   target: dev
   outputs:
     dev:
-      type: postgres
+      type: spark
+      method: odbc
+      driver: 'Simba Spark ODBC Driver'
       host: localhost
-      user: "{{ env_var('DBT_USER') }}"
-      password: "{{ env_var('DBT_PASSWORD') }}"
-      port: 5432
-      dbname: financial_analytics
-      schema: public
-      threads: 4 
+      port: 10000
+      database: default
+      schema: gold
+      threads: 4
+      # For Delta Lake tables
+      table_type: delta
+      # S3 configuration
+      s3_bucket: your-data-bucket
+      s3_region: us-east-1
+      # Authentication (if needed)
+      # aws_access_key_id: your_access_key
+      # aws_secret_access_key: your_secret_key

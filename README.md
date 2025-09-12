@@ -354,51 +354,67 @@ The crawler collects the following data types:
 - **Sentiment Data**: News sentiment analysis and scores
 - **Technical Indicators**: RSI, MACD, and other technical analysis metrics
 
-### Data Validation Strategy
+### Data Lakehouse Architecture
 
-Great Expectations provides comprehensive data quality validation suitable for big data workflows. The validation strategy includes:
+The project implements a modern data lakehouse with proper separation of concerns:
 
-#### Validation Rounds
+#### Architecture Layers
 
-**Single Validation Strategy (Recommended)**
-Since data is validated once and exported to S3, additional validation rounds are typically unnecessary. The validation happens:
-1. **Pre-S3 Upload**: Local validation ensures data quality before storage
-2. **Post-S3 Upload**: Optional Athena validation for production verification
+**🥉 Bronze Layer (Spark Streaming)**
+- Raw data ingestion from Kafka
+- Minimal processing, schema preservation
+- Technology: Spark Streaming + Delta Lake
 
-**Why Single Validation is Sufficient:**
-- S3 provides data immutability once uploaded
-- Parquet format maintains data integrity
-- Athena queries read directly from S3 without modification
-- Additional validation rounds add unnecessary complexity and cost
+**🥈 Silver Layer (Spark Batch)**
+- Data cleaning, validation, and enrichment
+- Data quality rules and business logic
+- Technology: Spark Batch + Delta Lake
 
-#### Validation Types
+**🥇 Gold Layer (dbt)**
+- Business metrics and aggregations
+- KPIs and reporting logic
+- Technology: dbt + Delta Lake
 
-1. **Local Validation (Pre-S3)**:
-```bash
-python great_expectations/weather_data_suite.py
+#### Data Flow
+```
+Kafka → Bronze (Spark) → Silver (Spark) → Gold (dbt)
 ```
 
-2. **S3 Validation**:
+#### Usage
+
+**Spark Pipeline (Bronze + Silver)**:
 ```bash
-python great_expectations/weather_data_suite.py s3 s3://your-bucket/weather-data/
+# Bronze layer (streaming)
+./run_transform.sh bronze weather-forecast noaa s3://my-bucket/bronze/weather
+
+# Silver layer (batch)
+./run_transform.sh silver weather-forecast noaa s3://my-bucket/bronze/weather s3://my-bucket/silver/weather
+
+# Both layers
+./run_transform.sh all weather-forecast noaa s3://my-bucket/bronze/weather s3://my-bucket/silver/weather
 ```
 
-3. **Athena Validation (Optional)**:
+**dbt Gold Layer**:
 ```bash
-python great_expectations/weather_data_suite.py athena weather_db processed_weather_data
+# Run gold layer models
+./run_dbt_gold.sh data_engineering_project dev s3://my-bucket/silver/weather s3://my-bucket/gold/weather
+
+# Or directly with dbt
+dbt run --models gold
 ```
 
-#### Validation Expectations (Least Likely to Fail)
-- Essential column presence (processing_timestamp, year, month, day, data_source)
-- Non-null values for critical fields
-- Data source validation (noaa)
-- Reasonable date ranges (2020-2030)
-- Row count limits (1-10M records for big data)
+#### Data Quality Validation
 
-#### View Validation Results:
+**Great Expectations Integration**:
 ```bash
-# Check S3 for validation results
-aws s3 ls s3://your-validation-results-bucket/
+# Validate bronze data
+python great_expectations/simple_validation.py s3 s3://my-bucket/bronze/weather
+
+# Validate silver data
+python great_expectations/simple_validation.py s3 s3://my-bucket/silver/weather
+
+# Validate gold data
+python great_expectations/simple_validation.py s3 s3://my-bucket/gold/weather
 ```
 
 ### Monitoring with Airflow

@@ -229,9 +229,10 @@ object DataTransformerApp {
     spark.sparkContext.setLogLevel("WARN")
 
     if (args.length < 4) {
-      println("Usage: DataTransformerApp <mode> <kafka_topic> <source_type> <bronze_s3_path> [silver_s3_path] [gold_s3_path]")
-      println("Modes: bronze, silver, gold")
+      println("Usage: DataTransformerApp <mode> <kafka_topic> <source_type> <bronze_s3_path> [silver_s3_path]")
+      println("Modes: bronze, silver")
       println("source_type options: noaa")
+      println("Note: Gold layer should be run using dbt")
       System.exit(1)
     }
 
@@ -295,9 +296,9 @@ object DataTransformerApp {
       mode.toLowerCase match {
         case "bronze" => runBronzeLayer(spark, kafkaTopic, sourceType, bronzeS3Path)
         case "silver" => runSilverLayer(spark, bronzeS3Path, silverS3Path)
-        case "gold" => runGoldLayer(spark, silverS3Path, goldS3Path)
         case _ => 
-          println(s"Unknown mode: $mode. Use: bronze, silver, or gold")
+          println(s"Unknown mode: $mode. Use: bronze or silver")
+          println("Note: Gold layer should be run using dbt, not Spark")
           System.exit(1)
       }
       
@@ -376,36 +377,6 @@ object DataTransformerApp {
     println("Table optimized for better query performance.")
   }
 
-  def runGoldLayer(spark: SparkSession, silverS3Path: String, goldS3Path: String): Unit = {
-    println("Running Gold Layer - Aggregated metrics...")
-    
-    val silverData = spark.read.format("delta").load(silverS3Path)
-    
-    // Create aggregated metrics
-    val goldData = silverData
-      .groupBy("data_source", "year", "month", "day", "city")
-      .agg(
-        avg("temperature").as("avg_temperature"),
-        max("temperature").as("max_temperature"),
-        min("temperature").as("min_temperature"),
-        avg("humidity").as("avg_humidity"),
-        avg("pressure").as("avg_pressure"),
-        avg("wind_speed").as("avg_wind_speed"),
-        avg("visibility").as("avg_visibility"),
-        avg("quality_score").as("avg_quality_score"),
-        count("*").as("record_count")
-      )
-      .withColumn("processing_timestamp", current_timestamp())
-    
-    goldData.write
-      .format("delta")
-      .mode("overwrite")
-      .option("overwriteSchema", "true")
-      .partitionBy("year", "month", "day")
-      .save(goldS3Path)
-    
-    println(s"Gold layer completed! Data saved to: $goldS3Path")
-  }
 
   def createKafkaStream(topic: String)(implicit spark: SparkSession): DataFrame = {
     println(s"Creating Kafka stream from topic: $topic")

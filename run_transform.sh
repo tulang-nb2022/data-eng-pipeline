@@ -89,23 +89,9 @@ case $MODE in
       "$GOLD_S3_PATH"
     ;;
     
-  "gold")
-    echo "Starting Gold Layer - Aggregated metrics..."
-    $SPARK_HOME/bin/spark-submit \
-      "${SPARK_CONF[@]}" \
-      --packages "io.delta:delta-core_2.13:4.0.0" \
-      --class transform.DataTransformerApp \
-      target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
-      "$MODE" \
-      "$KAFKA_TOPIC" \
-      "$SOURCE_TYPE" \
-      "$BRONZE_S3_PATH" \
-      "$SILVER_S3_PATH" \
-      "$GOLD_S3_PATH"
-    ;;
-    
   "all")
-    echo "Running complete pipeline: Bronze -> Silver -> Gold"
+    echo "Running complete pipeline: Bronze -> Silver"
+    echo "Note: Gold layer should be run separately using dbt"
     
     echo "Step 1: Bronze Layer..."
     $SPARK_HOME/bin/spark-submit \
@@ -117,8 +103,7 @@ case $MODE in
       "$KAFKA_TOPIC" \
       "$SOURCE_TYPE" \
       "$BRONZE_S3_PATH" \
-      "$SILVER_S3_PATH" \
-      "$GOLD_S3_PATH" &
+      "$SILVER_S3_PATH" &
     
     BRONZE_PID=$!
     sleep 30  # Let bronze layer run for 30 seconds
@@ -133,39 +118,32 @@ case $MODE in
       "$KAFKA_TOPIC" \
       "$SOURCE_TYPE" \
       "$BRONZE_S3_PATH" \
-      "$SILVER_S3_PATH" \
-      "$GOLD_S3_PATH"
-    
-    echo "Step 3: Gold Layer..."
-    $SPARK_HOME/bin/spark-submit \
-      "${SPARK_CONF[@]}" \
-      --packages "io.delta:delta-core_2.13:4.0.0" \
-      --class transform.DataTransformerApp \
-      target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
-      "gold" \
-      "$KAFKA_TOPIC" \
-      "$SOURCE_TYPE" \
-      "$BRONZE_S3_PATH" \
-      "$SILVER_S3_PATH" \
-      "$GOLD_S3_PATH"
+      "$SILVER_S3_PATH"
     
     # Stop bronze layer
     kill $BRONZE_PID 2>/dev/null
+    
+    echo ""
+    echo "✅ Spark pipeline completed!"
+    echo "📊 Next step: Run dbt for gold layer"
+    echo "   dbt run --models gold"
     ;;
     
   *)
-    echo "Usage: $0 <mode> [kafka_topic] [source_type] [bronze_s3_path] [silver_s3_path] [gold_s3_path]"
+    echo "Usage: $0 <mode> [kafka_topic] [source_type] [bronze_s3_path] [silver_s3_path]"
     echo ""
     echo "Modes:"
     echo "  bronze  - Raw data ingestion from Kafka to S3 (streaming)"
     echo "  silver  - Data cleaning and enrichment (batch)"
-    echo "  gold    - Aggregated metrics (batch)"
-    echo "  all     - Run complete pipeline"
+    echo "  all     - Run complete pipeline (bronze + silver)"
     echo ""
     echo "Examples:"
     echo "  $0 bronze weather-forecast noaa s3://my-bucket/bronze/weather"
     echo "  $0 silver weather-forecast noaa s3://my-bucket/bronze/weather s3://my-bucket/silver/weather"
-    echo "  $0 all weather-forecast noaa s3://my-bucket/bronze/weather s3://my-bucket/silver/weather s3://my-bucket/gold/weather"
+    echo "  $0 all weather-forecast noaa s3://my-bucket/bronze/weather s3://my-bucket/silver/weather"
+    echo ""
+    echo "Note: Gold layer should be run using dbt:"
+    echo "  dbt run --models gold"
     exit 1
     ;;
 esac
