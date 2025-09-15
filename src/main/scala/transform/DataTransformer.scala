@@ -36,9 +36,9 @@ object BronzeLayerTransformer {
       .withColumn("minute", minute(col("processing_timestamp")))
       .withColumn("kafka_offset", col("offset"))
       .withColumn("kafka_partition", col("partition"))
-      .withColumn("kafka_timestamp", col("timestamp"))
+      .withColumn("kafka_timestamp", col("kafka_timestamp"))
       .withColumn("data_source", lit(dataSource))
-      .drop("offset", "partition", "timestamp")
+      .drop("offset", "partition")
   }
 }
 
@@ -269,10 +269,10 @@ object DataTransformerApp {
 
         // Parse JSON with enhanced error handling
         val parsedStream = kafkaStream
-          .selectExpr("CAST(value AS STRING) as json_data", "offset", "partition", "timestamp")
+          .selectExpr("CAST(value AS STRING) as json_data", "offset", "partition", "timestamp as kafka_timestamp")
           .filter(col("json_data").isNotNull && length(col("json_data")) > 0)
-          .select(from_json(col("json_data"), jsonSchema).as("data"), col("offset"), col("partition"), col("timestamp"))
-          .select("data.*", "offset", "partition", "timestamp")
+          .select(from_json(col("json_data"), jsonSchema).as("data"), col("offset"), col("partition"), col("kafka_timestamp"))
+          .select("data.*", "offset", "partition", "kafka_timestamp")
           .na.fill(0) // Handle null values
 
         parsedStream
@@ -340,10 +340,10 @@ object DataTransformerApp {
 
     // Parse JSON with enhanced error handling
     val parsedStream = kafkaStream
-      .selectExpr("CAST(value AS STRING) as json_data", "offset", "partition", "timestamp")
+      .selectExpr("CAST(value AS STRING) as json_data", "offset", "partition", "timestamp as kafka_timestamp")
       .filter(col("json_data").isNotNull && length(col("json_data")) > 0)
-      .select(from_json(col("json_data"), jsonSchema).as("data"), col("offset"), col("partition"), col("timestamp"))
-      .select("data.*", "offset", "partition", "timestamp")
+      .select(from_json(col("json_data"), jsonSchema).as("data"), col("offset"), col("partition"), col("kafka_timestamp"))
+      .select("data.*", "offset", "partition", "kafka_timestamp")
       .na.fill(0) // Handle null values
     
     val bronzeStream = BronzeLayerTransformer.transformToBronze(parsedStream, sourceType)
