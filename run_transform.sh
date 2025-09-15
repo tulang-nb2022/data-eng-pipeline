@@ -55,7 +55,7 @@ SPARK_CONF=(
 )
 
 # Delta Lake and Kafka packages
-PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:3.5.0,io.delta:delta-core_2.13:2.4.0"
+PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:3.5.0,io.delta:delta-core_2.13:3.0.0"
 
 # Run the appropriate layer
 case $MODE in
