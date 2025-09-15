@@ -23,5 +23,8 @@ libraryDependencies ++= Seq(
   "com.typesafe" % "config" % "1.4.2",
   "org.json4s" %% "json4s-jackson" % "4.1.0-M4",
   "org.scalaj" %% "scalaj-http" % "2.4.2",
-  "org.scalatest" %% "scalatest" % "3.2.17" % Test
+  "org.scalatest" %% "scalatest" % "3.2.17" % Test,
+  "io.delta" %% "delta-core" % "4.0.0"
 ) 
+
+resolvers += "Delta Lake Repository" at "https://repo1.maven.org/maven2/"
