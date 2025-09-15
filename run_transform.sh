@@ -78,7 +78,7 @@ case $MODE in
     echo "Starting Silver Layer - Data cleaning and enrichment..."
     $SPARK_HOME/bin/spark-submit \
       "${SPARK_CONF[@]}" \
-      --packages "io.delta:delta-core_2.13:2.4.0" \
+      --packages "io.delta:delta-core_2.13:3.0.0" \
       --class transform.DataTransformerApp \
       target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
       "$MODE" \
@@ -111,7 +111,7 @@ case $MODE in
     echo "Step 2: Silver Layer..."
     $SPARK_HOME/bin/spark-submit \
       "${SPARK_CONF[@]}" \
-      --packages "io.delta:delta-core_2.13:2.4.0" \
+      --packages "io.delta:delta-core_2.13:3.0.0" \
       --class transform.DataTransformerApp \
       target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
       "silver" \
