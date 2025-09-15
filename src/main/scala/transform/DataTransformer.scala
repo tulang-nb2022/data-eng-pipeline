@@ -215,7 +215,7 @@ object DataTransformerApp {
   def main(args: Array[String]): Unit = {
     // Create Spark session with Delta Lake configuration
     val spark = SparkSession.builder()
-      .appName("Data Lakehouse Pipeline - Spark 4.0.0")
+      .appName("Data Lakehouse Pipeline - Spark 3.5.0")
       .config("spark.sql.adaptive.enabled", "true")
       .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
       .config("spark.sql.json.allowBackslashEscapingAnyCharacter", "true")
