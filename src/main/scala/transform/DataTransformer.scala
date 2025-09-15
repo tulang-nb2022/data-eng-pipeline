@@ -316,8 +316,37 @@ object DataTransformerApp {
     println("Running Bronze Layer - Raw data ingestion...")
     
     val transformer = DataTransformerApp(sourceType)(spark)
-    val kafkaStream = createKafkaStream(kafkaTopic)
-    val bronzeStream = BronzeLayerTransformer.transformToBronze(kafkaStream, sourceType)
+    
+    // Create Kafka stream using the local function defined in main
+    val kafkaStream = spark.readStream
+      .format("kafka")
+      .option("kafka.bootstrap.servers", "localhost:9092")
+      .option("subscribe", kafkaTopic)
+      .option("startingOffsets", "earliest")
+      .option("failOnDataLoss", "false")
+      .option("maxOffsetsPerTrigger", 1000)
+      .load()
+
+    // JSON schema matching the actual data structure
+    val jsonSchema = StructType(Seq(
+      StructField("temperature", DoubleType, true),
+      StructField("wind_speed", StringType, true),
+      StructField("city", StringType, true),
+      StructField("timestamp", StringType, true),
+      StructField("humidity", DoubleType, true),
+      StructField("pressure", DoubleType, true),
+      StructField("visibility", DoubleType, true)
+    ))
+
+    // Parse JSON with enhanced error handling
+    val parsedStream = kafkaStream
+      .selectExpr("CAST(value AS STRING) as json_data", "offset", "partition", "timestamp")
+      .filter(col("json_data").isNotNull && length(col("json_data")) > 0)
+      .select(from_json(col("json_data"), jsonSchema).as("data"), col("offset"), col("partition"), col("timestamp"))
+      .select("data.*", "offset", "partition", "timestamp")
+      .na.fill(0) // Handle null values
+    
+    val bronzeStream = BronzeLayerTransformer.transformToBronze(parsedStream, sourceType)
     
     val query = bronzeStream.writeStream
       .format("delta")
@@ -378,44 +407,4 @@ object DataTransformerApp {
   }
 
 
-  def createKafkaStream(topic: String)(implicit spark: SparkSession): DataFrame = {
-    println(s"Creating Kafka stream from topic: $topic")
-    
-    Try {
-      val kafkaStream = spark.readStream
-        .format("kafka")
-        .option("kafka.bootstrap.servers", "localhost:9092")
-        .option("subscribe", topic)
-        .option("startingOffsets", "earliest")
-        .option("failOnDataLoss", "false")
-        .option("maxOffsetsPerTrigger", 1000)
-        .load()
-
-      // JSON schema matching the actual data structure
-      val jsonSchema = StructType(Seq(
-        StructField("temperature", DoubleType, true),
-        StructField("wind_speed", StringType, true),
-        StructField("city", StringType, true),
-        StructField("timestamp", StringType, true),
-        StructField("humidity", DoubleType, true),
-        StructField("pressure", DoubleType, true),
-        StructField("visibility", DoubleType, true)
-      ))
-
-      // Parse JSON with enhanced error handling
-      val parsedStream = kafkaStream
-        .selectExpr("CAST(value AS STRING) as json_data", "offset", "partition", "timestamp")
-        .filter(col("json_data").isNotNull && length(col("json_data")) > 0)
-        .select(from_json(col("json_data"), jsonSchema).as("data"), col("offset"), col("partition"), col("timestamp"))
-        .select("data.*", "offset", "partition", "timestamp")
-        .na.fill(0) // Handle null values
-
-      parsedStream
-    } match {
-      case Success(df) => df
-      case Failure(e) =>
-        println(s"Error creating Kafka stream: ${e.getMessage}")
-        throw e
-    }
-  }
 } 
