@@ -24,11 +24,11 @@ libraryDependencies ++= Seq(
   "org.json4s" %% "json4s-jackson" % "4.0.7",
   "org.scalaj" %% "scalaj-http" % "2.4.2",
   "org.scalatest" %% "scalatest" % "3.2.17" % Test,
-  "io.delta" %% "delta-core" % "2.4.0",
-  "io.delta" %% "delta-storage" % "2.4.0"
+  "io.delta" %% "delta-core" % "2.4.0"
 ) 
 
 resolvers ++= Seq(
+  Resolver.mavenCentral,
   "Delta Lake Repository" at "https://repo1.maven.org/maven2/",
   "Apache Staging" at "https://repository.apache.org/content/repositories/staging/"
 )
