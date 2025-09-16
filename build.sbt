@@ -25,12 +25,17 @@ libraryDependencies ++= Seq(
   "org.scalaj" %% "scalaj-http" % "2.4.2",
   "org.scalatest" %% "scalatest" % "3.2.17" % Test,
   // Delta Lake with compatible version for Spark 3.5.0
-  "io.delta" %% "delta-core" % "2.4.0",
-  "io.delta" %% "delta-storage" % "2.4.0"
+  "io.delta" %% "delta-core" % "2.4.0"
 ) 
 
 resolvers ++= Seq(
   Resolver.mavenCentral,
-  Resolver.sonatypeCentralSnapshots,
   "Maven Central" at "https://repo1.maven.org/maven2/"
+)
+
+// Configure for Delta Lake
+fork := true
+javaOptions ++= Seq(
+  "--add-opens=java.base/java.lang=ALL-UNNAMED",
+  "--add-opens=java.base/java.util=ALL-UNNAMED"
 )
