@@ -19,6 +19,7 @@ libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql" % "3.5.0",
   "org.apache.spark" %% "spark-streaming" % "3.5.0",
   "org.apache.spark" %% "spark-streaming-kafka-0-10" % "3.5.0",
+  "org.apache.spark" %% "spark-sql-kafka-0-10" % "3.5.0",  // Add this for Kafka data source
   "org.apache.kafka" % "kafka-clients" % "3.5.1",
   "com.typesafe" % "config" % "1.4.2",
   "org.json4s" %% "json4s-jackson" % "4.0.7",
