@@ -31,6 +31,6 @@ libraryDependencies ++= Seq(
 
 resolvers ++= Seq(
   Resolver.mavenCentral,
-  Resolver.sonatypeRepo("releases"),
+  Resolver.sonatypeCentralSnapshots,
   "Maven Central" at "https://repo1.maven.org/maven2/"
 )
