@@ -353,7 +353,6 @@ object DataTransformerApp {
       .outputMode(OutputMode.Append)
       .option("checkpointLocation", s"data/checkpoint/bronze_$sourceType")
       .option("path", bronzeS3Path)
-      .partitionBy("year", "month", "day")
       .trigger(Trigger.ProcessingTime("30 seconds"))
       .queryName(s"bronze_${sourceType}_streaming_query")
       .start()
