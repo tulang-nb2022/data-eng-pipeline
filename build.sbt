@@ -9,17 +9,19 @@ dependencyOverrides ++= Seq(
   "org.scala-lang" % "scala-compiler" % "2.13.12"
 )
 
-// Add assembly plugin
+// Add assembly plugin with better merge strategy for Kafka connector
 assembly / assemblyMergeStrategy := {
   case PathList("META-INF", xs @ _*) => MergeStrategy.discard
+  case PathList("org", "apache", "spark", "sql", "kafka010", xs @ _*) => MergeStrategy.first
+  case PathList("kafka", xs @ _*) => MergeStrategy.first
+  case "reference.conf" => MergeStrategy.concat
   case x => MergeStrategy.first
 }
 
 libraryDependencies ++= Seq(
   "org.apache.spark" %% "spark-sql" % "3.5.0",
   "org.apache.spark" %% "spark-streaming" % "3.5.0",
-  "org.apache.spark" %% "spark-streaming-kafka-0-10" % "3.5.0",
-  "org.apache.spark" %% "spark-sql-kafka-0-10" % "3.5.0",  // Add this for Kafka data source
+  "org.apache.spark" %% "spark-sql-kafka-0-10" % "3.5.0",  // Kafka connector for Structured Streaming
   "org.apache.kafka" % "kafka-clients" % "3.5.1",
   "com.typesafe" % "config" % "1.4.2",
   "org.json4s" %% "json4s-jackson" % "4.0.7",
