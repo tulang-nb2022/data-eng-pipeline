@@ -18,7 +18,9 @@ assembly / assemblyMergeStrategy := {
 // Exclude Spark and Kafka from assembly - they'll be provided by spark-submit
 assembly / assemblyExcludedJars := {
   val cp = (assembly / fullClasspath).value
-  cp filter { _.data.getName.contains("spark") || _.data.getName.contains("kafka") }
+  cp filter { jar => 
+    jar.data.getName.contains("spark") || jar.data.getName.contains("kafka")
+  }
 }
 
 libraryDependencies ++= Seq(
