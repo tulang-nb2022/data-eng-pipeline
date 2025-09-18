@@ -52,17 +52,15 @@ SPARK_CONF=(
   "--conf" "spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension"
   "--conf" "spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog"
   "--conf" "spark.sql.streaming.checkpointLocation=data/checkpoint"
-  # S3 Configuration
+  # Delta Lake S3 Configuration (simplified)
   "--conf" "spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem"
   "--conf" "spark.hadoop.fs.s3a.aws.credentials.provider=com.amazonaws.auth.DefaultAWSCredentialsProviderChain"
-  "--conf" "spark.hadoop.fs.s3a.path.style.access=true"
-  "--conf" "spark.hadoop.fs.s3a.block.size=128M"
-  "--conf" "spark.hadoop.fs.s3a.multipart.size=128M"
-  "--conf" "spark.hadoop.fs.s3a.fast.upload=true"
+  "--conf" "spark.delta.logStore.class=org.apache.spark.sql.delta.storage.S3SingleDriverLogStore"
+  "--conf" "spark.sql.catalog.spark_catalog.logStore=org.apache.spark.sql.delta.storage.S3SingleDriverLogStore"
 )
 
-# Kafka, Delta Lake, and S3 packages for Spark 4.0.0
-PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,io.delta:delta-spark_2.13:4.0.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"
+# Kafka and Delta Lake with built-in S3 support for Spark 4.0.0
+PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,io.delta:delta-spark_2.13:4.0.0,io.delta:delta-storage-s3-dynamodb_2.13:4.0.0"
 
 # Run the appropriate layer
 case $MODE in
