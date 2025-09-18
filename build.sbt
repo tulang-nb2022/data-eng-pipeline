@@ -9,13 +9,16 @@ dependencyOverrides ++= Seq(
   "org.scala-lang" % "scala-compiler" % "2.13.12"
 )
 
-// Add assembly plugin with better merge strategy for Kafka connector
+// Add assembly plugin - exclude Spark and Kafka to avoid conflicts
 assembly / assemblyMergeStrategy := {
   case PathList("META-INF", xs @ _*) => MergeStrategy.discard
-  case PathList("org", "apache", "spark", "sql", "kafka010", xs @ _*) => MergeStrategy.first
-  case PathList("kafka", xs @ _*) => MergeStrategy.first
-  case "reference.conf" => MergeStrategy.concat
   case x => MergeStrategy.first
+}
+
+// Exclude Spark and Kafka from assembly - they'll be provided by spark-submit
+assembly / assemblyExcludedJars := {
+  val cp = (assembly / fullClasspath).value
+  cp filter { _.data.getName.contains("spark") || _.data.getName.contains("kafka") }
 }
 
 libraryDependencies ++= Seq(
