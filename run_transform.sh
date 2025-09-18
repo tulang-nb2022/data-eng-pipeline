@@ -54,8 +54,8 @@ SPARK_CONF=(
   "--conf" "spark.sql.streaming.checkpointLocation=data/checkpoint"
 )
 
-# Kafka packages only - Delta Lake included in assembly JAR
-PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0"
+# Kafka and Delta Lake packages for Spark 4.0.0
+PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,io.delta:delta-spark_2.13:4.0.0"
 
 # Run the appropriate layer
 case $MODE in

@@ -24,8 +24,8 @@ libraryDependencies ++= Seq(
   "org.json4s" %% "json4s-jackson" % "4.0.7",
   "org.scalaj" %% "scalaj-http" % "2.4.2",
   "org.scalatest" %% "scalatest" % "3.2.17" % Test,
-  // Delta Lake for Spark 4.0.0 - will be included in assembly, not from packages
-  "io.delta" %% "delta-spark" % "4.0.0"
+  // Delta Lake for Spark 4.0.0 - provided by packages to avoid conflicts
+  "io.delta" %% "delta-spark" % "4.0.0" % "provided"
 ) 
 
 resolvers ++= Seq(
