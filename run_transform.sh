@@ -25,9 +25,9 @@ echo "Build successful! Starting Data Lakehouse Pipeline..."
 MODE=${1:-"bronze"}
 KAFKA_TOPIC=${2:-"weather-forecast"}
 SOURCE_TYPE=${3:-"noaa"}
-BRONZE_S3_PATH=${4:-"s3://your-data-bucket/bronze/weather"}
-SILVER_S3_PATH=${5:-"s3://your-data-bucket/silver/weather"}
-GOLD_S3_PATH=${6:-"s3://your-data-bucket/gold/weather"}
+BRONZE_S3_PATH=${4:-"s3a://your-data-bucket/bronze/weather"}
+SILVER_S3_PATH=${5:-"s3a://your-data-bucket/silver/weather"}
+GOLD_S3_PATH=${6:-"s3a://your-data-bucket/gold/weather"}
 
 echo "=========================================="
 echo "Data Lakehouse Pipeline Configuration"
@@ -70,6 +70,7 @@ case $MODE in
     echo "Starting Bronze Layer - Raw data ingestion from Kafka..."
     $SPARK_HOME/bin/spark-submit \
       "${SPARK_CONF[@]}" \
+      --verbose \
       --packages "$PACKAGES" \
       --class transform.DataTransformerApp \
       target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
