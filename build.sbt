@@ -16,16 +16,16 @@ assembly / assemblyMergeStrategy := {
 }
 
 libraryDependencies ++= Seq(
-  "org.apache.spark" %% "spark-sql" % "3.5.0" % "provided",
-  "org.apache.spark" %% "spark-streaming" % "3.5.0" % "provided", 
-  "org.apache.spark" %% "spark-sql-kafka-0-10" % "3.5.0" % "provided",
+  "org.apache.spark" %% "spark-sql" % "4.0.0" % "provided",
+  "org.apache.spark" %% "spark-streaming" % "4.0.0" % "provided", 
+  "org.apache.spark" %% "spark-sql-kafka-0-10" % "4.0.0" % "provided",
   "org.apache.kafka" % "kafka-clients" % "3.5.1" % "provided",
   "com.typesafe" % "config" % "1.4.2",
   "org.json4s" %% "json4s-jackson" % "4.0.7",
   "org.scalaj" %% "scalaj-http" % "2.4.2",
   "org.scalatest" %% "scalatest" % "3.2.17" % Test,
-  // Delta Lake with compatible version for Spark 3.5.0  
-  "io.delta" %% "delta-core" % "2.4.0" % "provided"
+  // Delta Lake for Spark 4.0.0 - will be included in assembly, not from packages
+  "io.delta" %% "delta-spark" % "4.0.0"
 ) 
 
 resolvers ++= Seq(
