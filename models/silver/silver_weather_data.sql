@@ -11,8 +11,9 @@
 ) }}
 
 with bronze_data as (
+    -- DuckDB can read parquet files directly from S3
     select *
-    from delta.`s3a://data-eng-bucket-345/bronze/weather`
+    from read_parquet('s3://data-eng-bucket-345/bronze/weather/**/*.parquet')
 ),
 
 cleaned_data as (

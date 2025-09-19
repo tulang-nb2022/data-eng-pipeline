@@ -2,14 +2,13 @@ data_engineering_project:
   target: dev
   outputs:
     dev:
-      type: spark
-      method: session
-      host: localhost
-      schema: default
-      threads: 1
-      # Direct S3 access configuration
-      spark_config:
-        spark.sql.extensions: io.delta.sql.DeltaSparkSessionExtension
-        spark.sql.catalog.spark_catalog: org.apache.spark.sql.delta.catalog.DeltaCatalog
-        spark.hadoop.fs.s3a.impl: org.apache.hadoop.fs.s3a.S3AFileSystem
-        spark.hadoop.fs.s3a.aws.credentials.provider: com.amazonaws.auth.DefaultAWSCredentialsProviderChain
+      type: duckdb
+      path: ./gold_layer_test.duckdb
+      schema: gold
+      threads: 4
+      extensions:
+        - httpfs
+        - delta
+      settings:
+        s3_region: us-east-1
+        s3_use_ssl: true
