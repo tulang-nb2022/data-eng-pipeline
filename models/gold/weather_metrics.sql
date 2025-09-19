@@ -6,9 +6,10 @@
     location='s3://data-eng-bucket-345/gold/weather/weather_metrics'
 ) }}
 
+
 with silver_data as (
     select *
-    from {{ ref('silver_weather_data') }}
+    from {{ ref('weather_metrics') }}
     where is_valid = true
 ),
 
