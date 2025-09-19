@@ -3,7 +3,7 @@ data_engineering_project:
   outputs:
     dev:
       type: spark
-      method: local
+      method: session
       host: localhost
       schema: default
       threads: 1
