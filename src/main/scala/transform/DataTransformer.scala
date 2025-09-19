@@ -83,13 +83,20 @@ object SilverLayerTransformer {
       .withColumn("timestamp_cleaned", 
         when(col("timestamp").isNull, col("processing_timestamp"))
         .otherwise(
-          coalesce(
-            try_to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"),  // With microseconds
-            try_to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSS"),     // With milliseconds
-            try_to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss"),         // Without subseconds
-            try_to_timestamp(col("timestamp")),                                  // ISO format auto-parse
-            col("processing_timestamp")                                          // Fallback
+          // Handle microseconds by truncating to milliseconds, then parse
+          when(col("timestamp").rlike("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}"),
+            to_timestamp(
+              regexp_replace(col("timestamp"), "(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3})\\d{3}", "$1"),
+              "yyyy-MM-dd'T'HH:mm:ss.SSS"
+            )
           )
+          .when(col("timestamp").rlike("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}"),
+            to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSS")
+          )
+          .when(col("timestamp").rlike("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"),
+            to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss")
+          )
+          .otherwise(col("processing_timestamp"))
         )
       )
       .withColumn("city_cleaned",
