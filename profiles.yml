@@ -4,6 +4,7 @@ data_engineering_project:
     dev:
       type: spark
       method: session
+      host: localhost
       schema: default
       threads: 4
       # Direct S3 access configuration
