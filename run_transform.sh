@@ -60,7 +60,7 @@ SPARK_CONF=(
 )
 
 # Kafka and Delta Lake with built-in S3 support for Spark 4.0.0
-PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,io.delta:delta-spark_2.13:4.0.0,io.delta:delta-storage-s3-dynamodb_2.13:4.0.0"
+PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,io.delta:delta-spark_2.13:4.0.0"
 
 # Run the appropriate layer
 case $MODE in
