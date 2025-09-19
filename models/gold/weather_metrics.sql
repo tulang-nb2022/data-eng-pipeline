@@ -1,9 +1,5 @@
 -- Gold Layer: Aggregated Weather Metrics
 -- This model creates business-ready aggregated metrics from the silver layer
-CREATE SECRET (
-    TYPE s3,
-    PROVIDER credential_chain
-);
 
 {{ config(
     materialized='table',
