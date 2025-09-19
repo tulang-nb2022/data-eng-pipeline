@@ -1,10 +1,10 @@
 version: 2
 
 sources:
-  - name: weather_data
+  - name: weather
     description: "Weather data stored in S3 (silver)"
     tables:
-      - name: weather_partitioned
+      - name: silver_data
         description: "Date-partitioned weather data"
         meta:
-          external_location: "s3://data-eng-bucket-345/silver/weather/"
+          external_location: "s3://data-eng-bucket-345/silver/weather/**/*.parquet"

@@ -9,7 +9,4 @@ data_engineering_project:
       extensions:
         - httpfs
         - delta
-      settings:
-        s3_region: us-east-1
-        s3_use_ssl: true
       

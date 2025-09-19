@@ -3,12 +3,13 @@
 
 {{ config(
     materialized='table',
-    location='s3://data-eng-bucket-345/gold/weather/weather_metrics'
+    location='s3://data-eng-bucket-345/gold/weather/weather_metrics',
+    pre_hook='INSTALL httpfs; LOAD httpfs;'
 ) }}
 
 with silver_data as (
     select *
-    from {{ source('weather_data', 'weather_partitioned') }}
+    from 's3://data-eng-bucket-345/silver/weather/**/*.parquet'
     where is_valid = true
 ),
 
