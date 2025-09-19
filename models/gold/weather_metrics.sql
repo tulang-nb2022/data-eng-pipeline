@@ -3,7 +3,6 @@
 
 {{ config(
     materialized='table',
-    location='s3://data-eng-bucket-345/gold/weather/',
     pre_hook='INSTALL httpfs; LOAD httpfs;',
     post_hook=["
         COPY (SELECT * FROM {{ this }})
@@ -19,7 +18,7 @@
 
 with silver_data as (
     select *
-    from 's3://data-eng-bucket-345/silver/weather/**/*.parquet'
+    from read_parquet('s3://data-eng-bucket-345/silver/weather/**/*.parquet')
     where is_valid = true
 ),
 
