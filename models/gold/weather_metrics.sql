@@ -3,11 +3,7 @@
 
 {{ config(
     materialized='table',
-    partition_by={
-        "field": "processing_timestamp",
-        "data_type": "timestamp",
-        "granularity": "day"
-    }
+    location='s3://data-eng-bucket-345/gold/weather/weather_metrics'
 ) }}
 
 with silver_data as (
