@@ -1,45 +1,10 @@
 version: 2
 
-models:
-  - name: int_technical_indicators
-    description: >
-      Technical analysis indicators calculated from daily price data.
-      Updates daily and includes RSI, MACD, and Bollinger Bands.
-    columns:
-      - name: symbol
-        description: Stock ticker symbol
-      - name: trading_date
-        description: Date of trading activity
-      - name: rsi_14d
-        description: >
-          14-day Relative Strength Index (RSI). 
-          Range: 0-100
-          Traditional interpretation:
-          - Above 70: Overbought
-          - Below 30: Oversold
-      - name: macd_line
-        description: >
-          Moving Average Convergence Divergence line.
-          Calculated as difference between 12-day and 26-day EMAs.
-      - name: signal_line
-        description: 9-day EMA of MACD line
-      - name: bollinger_signal
-        description: >
-          Position relative to Bollinger Bands (20-day SMA ± 2 standard deviations)
-          Values: OVERBOUGHT, OVERSOLD, NEUTRAL
-
-  - name: fct_stock_performance
-    description: >
-      Consolidated fact table combining technical indicators, volatility metrics,
-      and performance measures. Primary source for stock analysis.
-    columns:
-      - name: sharpe_ratio
-        description: >
-          Risk-adjusted return metric.
-          Calculated as: (Annual Return - Risk Free Rate) / Annual Volatility
-          Higher values indicate better risk-adjusted performance.
-        tests:
-          - not_null
-          - dbt_utils.accepted_range:
-              min_value: -10
-              max_value: 10 
+sources:
+  - name: weather_data
+    description: "Weather data stored in S3 (silver)"
+    tables:
+      - name: weather_partitioned
+        description: "Date-partitioned weather data"
+        meta:
+          external_location: "s3://data-eng-bucket-345/silver/weather/"
