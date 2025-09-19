@@ -6,7 +6,7 @@
     pre_hook='INSTALL httpfs; LOAD httpfs;',
     post_hook=["
         COPY (SELECT * FROM {{ this }})
-        TO 's3://data-eng-bucket-345/gold/weather/{{ this.name }}/'
+        TO 's3://data-eng-bucket-345/gold/weather/'
         (
             FORMAT PARQUET,
             OVERWRITE_OR_IGNORE true,
