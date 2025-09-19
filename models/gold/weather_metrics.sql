@@ -122,4 +122,4 @@ left join weather_alerts wa
     and dm.day = wa.day 
     and dm.city = wa.city
 
-order by dm.data_source, year, month, day, city
+order by dm.data_source, dm.year, dm.month, dm.day, dm.city
