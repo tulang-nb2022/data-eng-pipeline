@@ -12,7 +12,7 @@
             FORMAT PARQUET,
             OVERWRITE_OR_IGNORE true,
             COMPRESSION SNAPPY,
-            PARTITION_BY (sale_year, sale_month, sale_day)
+            PARTITION_BY (year, month, day)
         )
     "]
 ) }}
