@@ -12,5 +12,4 @@ data_engineering_project:
       settings:
         s3_region: us-east-1
         s3_use_ssl: true
-        # Configure S3 for writing (optional - uses default AWS credentials if not set)
-        aws_profile_name: default
+      
