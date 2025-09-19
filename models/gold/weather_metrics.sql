@@ -11,7 +11,7 @@
         (
             FORMAT PARQUET,
             OVERWRITE_OR_IGNORE true,
-            COMPRESSION ZSTD,
+            COMPRESSION SNAPPY,
             PARTITION_BY (sale_year, sale_month, sale_day)
         )
     "]
