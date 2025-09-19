@@ -82,7 +82,15 @@ object SilverLayerTransformer {
       )
       .withColumn("timestamp_cleaned", 
         when(col("timestamp").isNull, col("processing_timestamp"))
-        .otherwise(to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss"))
+        .otherwise(
+          coalesce(
+            try_to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSS"),  // With microseconds
+            try_to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSS"),     // With milliseconds
+            try_to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss"),         // Without subseconds
+            try_to_timestamp(col("timestamp")),                                  // ISO format auto-parse
+            col("processing_timestamp")                                          // Fallback
+          )
+        )
       )
       .withColumn("city_cleaned",
         when(col("city").isNull, lit("UNKNOWN"))
