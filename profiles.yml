@@ -3,10 +3,10 @@ data_engineering_project:
   outputs:
     dev:
       type: spark
-      method: session
+      method: local
       host: localhost
       schema: default
-      threads: 4
+      threads: 1
       # Direct S3 access configuration
       spark_config:
         spark.sql.extensions: io.delta.sql.DeltaSparkSessionExtension
