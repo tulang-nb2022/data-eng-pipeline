@@ -8,7 +8,7 @@ data_engineering_project:
       host: localhost
       port: 10000
       database: default
-      schema: gold
+      schema: default
       threads: 4
       # For Delta Lake tables
       table_type: delta
