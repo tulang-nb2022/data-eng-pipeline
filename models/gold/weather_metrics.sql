@@ -3,8 +3,18 @@
 
 {{ config(
     materialized='table',
-    location='s3://data-eng-bucket-345/gold/weather/weather_metrics',
-    pre_hook='INSTALL httpfs; LOAD httpfs;'
+    location='s3://data-eng-bucket-345/gold/weather/',
+    pre_hook='INSTALL httpfs; LOAD httpfs;',
+    post_hook=["
+        COPY (SELECT * FROM {{ this }})
+        TO 's3://data-eng-bucket-345/gold/weather/{{ this.name }}/'
+        (
+            FORMAT PARQUET,
+            OVERWRITE_OR_IGNORE true,
+            COMPRESSION ZSTD,
+            PARTITION_BY (sale_year, sale_month, sale_day)
+        )
+    "]
 ) }}
 
 with silver_data as (
@@ -112,7 +122,7 @@ select
     dm.*,
     wa.weather_alert_type,
     wa.alert_severity,
-    current_timestamp() as gold_processing_timestamp
+    {{ dbt.current_timestamp() }} as gold_processing_timestamp
     
 from daily_metrics dm
 left join weather_alerts wa 

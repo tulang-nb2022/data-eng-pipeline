@@ -2,9 +2,9 @@ version: 2
 
 sources:
   - name: bronze
-    description: "Bronze layer data from Delta Lake tables"
+    description: "Silver layer data from Delta Lake tables"
     meta:
-      external_location: "s3a://data-eng-bucket-345/bronze/weather"
+      external_location: "s3a://data-eng-bucket-345/silver/weather"
     tables:
       - name: weather_data
         description: "Raw weather data ingested from Kafka"
