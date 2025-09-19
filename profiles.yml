@@ -12,6 +12,8 @@ data_engineering_project:
       settings:
         s3_region: us-east-1
         s3_use_ssl: true
-        # Configure S3 for writing
+        # Configure S3 for writing (optional - uses default AWS credentials if not set)
+        {% if env_var('AWS_ACCESS_KEY_ID', '') %}
         s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
         s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+        {% endif %}
