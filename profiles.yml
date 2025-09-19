@@ -3,18 +3,12 @@ data_engineering_project:
   outputs:
     dev:
       type: spark
-      method: odbc
-      driver: 'Simba Spark ODBC Driver'
-      host: localhost
-      port: 10000
-      database: default
+      method: session
       schema: default
       threads: 4
-      # For Delta Lake tables
-      table_type: delta
-      # S3 configuration
-      s3_bucket: your-data-bucket
-      s3_region: us-east-1
-      # Authentication (if needed)
-      # aws_access_key_id: your_access_key
-      # aws_secret_access_key: your_secret_key
+      # Direct S3 access configuration
+      spark_config:
+        spark.sql.extensions: io.delta.sql.DeltaSparkSessionExtension
+        spark.sql.catalog.spark_catalog: org.apache.spark.sql.delta.catalog.DeltaCatalog
+        spark.hadoop.fs.s3a.impl: org.apache.hadoop.fs.s3a.S3AFileSystem
+        spark.hadoop.fs.s3a.aws.credentials.provider: com.amazonaws.auth.DefaultAWSCredentialsProviderChain

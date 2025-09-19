@@ -3,9 +3,13 @@ version: 2
 sources:
   - name: bronze
     description: "Bronze layer data from Delta Lake tables"
+    meta:
+      external_location: "s3a://data-eng-bucket-345/bronze/weather"
     tables:
       - name: weather_data
         description: "Raw weather data ingested from Kafka"
+        meta:
+          external_location: "s3a://data-eng-bucket-345/bronze/weather"
         columns:
           - name: temperature
             description: "Temperature in Celsius"

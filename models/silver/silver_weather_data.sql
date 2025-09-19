@@ -12,9 +12,7 @@
 
 with bronze_data as (
     select *
-    from {{ source('bronze', 'weather_data') }}
-    -- Note: In production, you would read from S3 Delta Lake tables
-    -- For now, this assumes the data is available as a dbt source
+    from delta.`s3a://data-eng-bucket-345/bronze/weather`
 ),
 
 cleaned_data as (
