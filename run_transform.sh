@@ -60,7 +60,7 @@ SPARK_CONF=(
 )
 
 # Kafka and Delta Lake with built-in S3 support for Spark 4.0.0
-PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,io.delta:delta-spark_2.13:4.0.0"
+PACKAGES="org.apache.spark:spark-sql-kafka-0-10_2.13:4.0.0,io.delta:delta-spark_2.13:4.0.0,org.apache.hadoop:hadoop-aws:3.4.0,com.amazonaws:aws-java-sdk-bundle:1.12.565"
 
 # Run the appropriate layer
 case $MODE in
@@ -84,7 +84,7 @@ case $MODE in
     echo "Starting Silver Layer - Data cleaning and enrichment..."
     $SPARK_HOME/bin/spark-submit \
       "${SPARK_CONF[@]}" \
-      --packages "io.delta:delta-core_2.13:2.4.0" \
+      --packages "io.delta:delta-spark_2.13:4.0.0,org.apache.hadoop:hadoop-aws:3.4.0,com.amazonaws:aws-java-sdk-bundle:1.12.565" \
       --class transform.DataTransformerApp \
       target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
       "$MODE" \
@@ -117,7 +117,7 @@ case $MODE in
     echo "Step 2: Silver Layer..."
     $SPARK_HOME/bin/spark-submit \
       "${SPARK_CONF[@]}" \
-      --packages "io.delta:delta-core_2.13:2.4.0" \
+      --packages "io.delta:delta-spark_2.13:4.0.0,org.apache.hadoop:hadoop-aws:3.4.0,com.amazonaws:aws-java-sdk-bundle:1.12.565" \
       --class transform.DataTransformerApp \
       target/scala-2.13/data-engineering-project-assembly-0.1.0.jar \
       "silver" \
