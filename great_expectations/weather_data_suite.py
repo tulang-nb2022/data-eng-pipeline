@@ -388,6 +388,10 @@ def display_simple_validation_results(validation_results, df):
             print(f"  {source}: {count:,} records")
     
     if "year" in df.columns:
+        year_col = df['year']
+        if hasattr(year_col.dtype, 'categories'):
+            # It's categorical, convert to ordered for min/max operations
+            year_col = year_col.cat.as_ordered()
         year_range = f"{year_col.min()} - {year_col.max()}"
         print(f"Year range: {year_range}")
     
@@ -450,6 +454,10 @@ def display_validation_results(results, df):
             print(f"  {source}: {count:,} records")
     
     if "year" in df.columns:
+        year_col = df['year']
+        if hasattr(year_col.dtype, 'categories'):
+            # It's categorical, convert to ordered for min/max operations
+            year_col = year_col.cat.as_ordered()
         year_range = f"{year_col.min()} - {year_col.max()}"
         print(f"Year range: {year_range}")
     
