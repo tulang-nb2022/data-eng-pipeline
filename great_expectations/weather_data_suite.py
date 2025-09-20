@@ -388,7 +388,7 @@ def display_simple_validation_results(validation_results, df):
             print(f"  {source}: {count:,} records")
     
     if "year" in df.columns:
-        year_range = f"{df['year'].min()} - {df['year'].max()}"
+        year_range = f"{year_col.min()} - {year_col.max()}"
         print(f"Year range: {year_range}")
     
     if "weather_alert_type" in df.columns:
@@ -450,7 +450,7 @@ def display_validation_results(results, df):
             print(f"  {source}: {count:,} records")
     
     if "year" in df.columns:
-        year_range = f"{df['year'].min()} - {df['year'].max()}"
+        year_range = f"{year_col.min()} - {year_col.max()}"
         print(f"Year range: {year_range}")
     
     if "weather_alert_type" in df.columns:
