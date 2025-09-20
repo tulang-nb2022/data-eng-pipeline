@@ -21,18 +21,16 @@ import glob
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: str = "gold_weather_metrics_suite"):
+def create_gold_layer_expectation_suite(context, suite_name: str = "gold_weather_metrics_suite"):
     """Create expectation suite for gold layer weather metrics"""
     
     try:
-        suite = context.get_or_create_expectation_suite(suite_name)
-        print(f"✅ Created/retrieved expectation suite: {suite_name}")
+        # For v1.6.1, create suite directly
+        suite = ge.ExpectationSuite(name=suite_name)
+        print(f"✅ Created expectation suite: {suite_name}")
     except Exception as e:
         print(f"❌ Failed to create expectation suite: {e}")
         return None
-    
-    # Clear existing expectations
-    suite.expectations = []
     
     # Expected columns in gold layer (based on your current schema)
     expected_columns = [
@@ -49,14 +47,14 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     
     # Table-level expectations
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_table_columns_to_match_set",
             kwargs={"column_set": set(expected_columns)}
         )
     )
     
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_table_row_count_to_be_between",
             kwargs={"min_value": 1, "max_value": 10000000}
         )
@@ -66,7 +64,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     essential_columns = ["data_source", "year", "month", "day", "city"]
     for column in essential_columns:
         suite.add_expectation(
-            ge.core.ExpectationConfiguration(
+            ge.ExpectationConfiguration(
                 expectation_type="expect_column_values_to_not_be_null",
                 kwargs={"column": column}
             )
@@ -74,7 +72,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     
     # Data source validation
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_in_set",
             kwargs={
                 "column": "data_source",
@@ -85,7 +83,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     
     # Date range validations
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_between",
             kwargs={
                 "column": "year",
@@ -96,7 +94,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     )
     
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_between",
             kwargs={
                 "column": "month",
@@ -107,7 +105,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     )
     
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_between",
             kwargs={
                 "column": "day",
@@ -119,7 +117,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     
     # Temperature validations (more lenient)
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_between",
             kwargs={
                 "column": "avg_temperature",
@@ -132,7 +130,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     
     # Record count validation
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_between",
             kwargs={
                 "column": "record_count",
@@ -144,7 +142,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     
     # Weather alert type validation
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_in_set",
             kwargs={
                 "column": "weather_alert_type",
@@ -156,7 +154,7 @@ def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: st
     
     # Alert severity validation
     suite.add_expectation(
-        ge.core.ExpectationConfiguration(
+        ge.ExpectationConfiguration(
             expectation_type="expect_column_values_to_be_in_set",
             kwargs={
                 "column": "alert_severity",
@@ -229,25 +227,21 @@ def validate_gold_layer_data(
     print("GREAT EXPECTATIONS - GOLD LAYER VALIDATION")
     print("="*60)
     
-    # Initialize Great Expectations context
+    # Initialize Great Expectations context for v1.6.1
     try:
-        # For v1.6.1, try different initialization methods
-        try:
-            context = FileDataContext(project_root_dir=context_path)
-        except Exception:
-            # Alternative initialization for v1.6.1
-            context = FileDataContext()
-            context.root_directory = context_path
+        # For v1.6.1, we need to initialize differently
+        import great_expectations as ge
         
+        # Create a simple context without complex configuration
+        context = ge.get_context()
         print("✅ Great Expectations context initialized")
     except Exception as e:
         print(f"❌ Failed to initialize context: {e}")
         print("Trying alternative initialization...")
         try:
-            # Fallback: use the old BaseDataContext if available
-            from great_expectations.data_context import BaseDataContext
-            context = BaseDataContext(project_root_dir=context_path)
-            print("✅ Great Expectations context initialized (fallback)")
+            # Alternative: create context with minimal config
+            context = FileDataContext()
+            print("✅ Great Expectations context initialized (minimal)")
         except Exception as e2:
             print(f"❌ All initialization methods failed: {e2}")
             return None
@@ -309,21 +303,10 @@ def validate_gold_layer_data(
     if 'city' in df.columns:
         print(f"   Cities: {df['city'].value_counts().head().to_dict()}")
     
-    # Create batch request for Great Expectations
+    # Create validator for v1.6.1
     try:
-        batch_request = RuntimeBatchRequest(
-            datasource_name="pandas_datasource",
-            data_connector_name="default_runtime_data_connector_name",
-            data_asset_name="gold_weather_data",
-            runtime_parameters={"batch_data": df},
-            batch_identifiers={"default_identifier_name": "default_identifier"}
-        )
-        
-        # Create validator
-        validator = context.get_validator(
-            batch_request=batch_request,
-            expectation_suite_name="gold_weather_metrics_suite"
-        )
+        # For v1.6.1, create validator directly with DataFrame
+        validator = ge.from_pandas(df, expectation_suite=suite)
         
         # Run validation
         results = validator.validate()
@@ -416,44 +399,13 @@ def initialize_great_expectations_project(project_root: str = "great_expectation
     os.makedirs(project_root, exist_ok=True)
     
     try:
-        # Initialize Great Expectations context with multiple fallbacks
-        context = None
+        # Initialize Great Expectations context for v1.6.1
+        import great_expectations as ge
         
-        # Try FileDataContext first
-        try:
-            context = FileDataContext(project_root_dir=project_root)
-        except Exception:
-            try:
-                # Alternative initialization
-                context = FileDataContext()
-                context.root_directory = project_root
-            except Exception:
-                # Fallback to BaseDataContext
-                from great_expectations.data_context import BaseDataContext
-                context = BaseDataContext(project_root_dir=project_root)
+        # Create a simple context
+        context = ge.get_context()
         
-        # Create datasource configuration for v1.6.1
-        datasource_config = {
-            "name": "pandas_datasource",
-            "class_name": "Datasource",
-            "module_name": "great_expectations.datasource",
-            "execution_engine": {
-                "class_name": "PandasExecutionEngine",
-                "module_name": "great_expectations.execution_engine"
-            },
-            "data_connectors": {
-                "default_runtime_data_connector_name": {
-                    "class_name": "RuntimeDataConnector",
-                    "module_name": "great_expectations.datasource.data_connector",
-                    "batch_identifiers": ["default_identifier_name"]
-                }
-            }
-        }
-        
-        # Add datasource to context
-        context.add_datasource(**datasource_config)
-        
-        print(f"✅ Great Expectations project initialized in: {project_root}")
+        print(f"✅ Great Expectations project initialized")
         print("✅ Project structure created successfully!")
         
         return context
