@@ -231,11 +231,26 @@ def validate_gold_layer_data(
     
     # Initialize Great Expectations context
     try:
-        context = FileDataContext.create(project_root_dir=context_path)
+        # For v1.6.1, try different initialization methods
+        try:
+            context = FileDataContext(project_root_dir=context_path)
+        except Exception:
+            # Alternative initialization for v1.6.1
+            context = FileDataContext()
+            context.root_directory = context_path
+        
         print("✅ Great Expectations context initialized")
     except Exception as e:
         print(f"❌ Failed to initialize context: {e}")
-        return None
+        print("Trying alternative initialization...")
+        try:
+            # Fallback: use the old BaseDataContext if available
+            from great_expectations.data_context import BaseDataContext
+            context = BaseDataContext(project_root_dir=context_path)
+            print("✅ Great Expectations context initialized (fallback)")
+        except Exception as e2:
+            print(f"❌ All initialization methods failed: {e2}")
+            return None
     
     # Create expectation suite
     suite = create_gold_layer_expectation_suite(context)
@@ -401,8 +416,21 @@ def initialize_great_expectations_project(project_root: str = "great_expectation
     os.makedirs(project_root, exist_ok=True)
     
     try:
-        # Initialize Great Expectations context
-        context = FileDataContext.create(project_root_dir=project_root)
+        # Initialize Great Expectations context with multiple fallbacks
+        context = None
+        
+        # Try FileDataContext first
+        try:
+            context = FileDataContext(project_root_dir=project_root)
+        except Exception:
+            try:
+                # Alternative initialization
+                context = FileDataContext()
+                context.root_directory = project_root
+            except Exception:
+                # Fallback to BaseDataContext
+                from great_expectations.data_context import BaseDataContext
+                context = BaseDataContext(project_root_dir=project_root)
         
         # Create datasource configuration for v1.6.1
         datasource_config = {
