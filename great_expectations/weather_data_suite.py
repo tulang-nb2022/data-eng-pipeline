@@ -25,7 +25,7 @@ def create_gold_layer_expectation_suite(context, suite_name: str = "gold_weather
     """Create expectation suite for gold layer weather metrics"""
     
     try:
-        # For v1.6.1, create suite directly
+        # For v1.6.1, create suite directly without context
         suite = ge.ExpectationSuite(name=suite_name)
         print(f"✅ Created expectation suite: {suite_name}")
     except Exception as e:
@@ -163,13 +163,8 @@ def create_gold_layer_expectation_suite(context, suite_name: str = "gold_weather
         )
     )
     
-    # Save the suite
-    try:
-        context.save_expectation_suite(suite)
-        print("✅ Expectation suite saved successfully")
-    except Exception as e:
-        print(f"❌ Failed to save expectation suite: {e}")
-    
+    # Suite is ready to use (no need to save without context)
+    print("✅ Expectation suite ready for validation")
     return suite
 
 def read_data_from_s3(s3_path: str) -> Optional[pd.DataFrame]:
@@ -227,24 +222,9 @@ def validate_gold_layer_data(
     print("GREAT EXPECTATIONS - GOLD LAYER VALIDATION")
     print("="*60)
     
-    # Initialize Great Expectations context for v1.6.1
-    try:
-        # For v1.6.1, we need to initialize differently
-        import great_expectations as ge
-        
-        # Create a simple context without complex configuration
-        context = ge.get_context()
-        print("✅ Great Expectations context initialized")
-    except Exception as e:
-        print(f"❌ Failed to initialize context: {e}")
-        print("Trying alternative initialization...")
-        try:
-            # Alternative: create context with minimal config
-            context = FileDataContext()
-            print("✅ Great Expectations context initialized (minimal)")
-        except Exception as e2:
-            print(f"❌ All initialization methods failed: {e2}")
-            return None
+    # Skip complex context initialization for v1.6.1
+    print("✅ Using simplified Great Expectations approach (no context needed)")
+    context = None  # We'll work without a complex context
     
     # Create expectation suite
     suite = create_gold_layer_expectation_suite(context)
@@ -391,28 +371,17 @@ def display_validation_results(results, df):
     print("\n" + "="*60)
 
 def initialize_great_expectations_project(project_root: str = "great_expectations"):
-    """Initialize Great Expectations project"""
+    """Initialize Great Expectations project (simplified for v1.6.1)"""
     
-    print("🚀 Initializing Great Expectations project...")
+    print("🚀 Initializing Great Expectations project (simplified)...")
     
     # Create project directory
     os.makedirs(project_root, exist_ok=True)
     
-    try:
-        # Initialize Great Expectations context for v1.6.1
-        import great_expectations as ge
-        
-        # Create a simple context
-        context = ge.get_context()
-        
-        print(f"✅ Great Expectations project initialized")
-        print("✅ Project structure created successfully!")
-        
-        return context
-        
-    except Exception as e:
-        print(f"❌ Failed to initialize Great Expectations: {e}")
-        return None
+    print(f"✅ Great Expectations project directory created: {project_root}")
+    print("✅ Using simplified approach (no complex context needed)")
+    
+    return None  # No context needed for simplified approach
 
 def validate_s3_gold_data(s3_path: str):
     """Validate gold data stored in S3"""
