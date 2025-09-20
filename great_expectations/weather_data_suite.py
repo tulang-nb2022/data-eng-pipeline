@@ -45,18 +45,16 @@ def create_gold_layer_expectation_suite(context, suite_name: str = "gold_weather
         "weather_alert_type", "alert_severity", "gold_processing_timestamp"
     ]
     
-    # Table-level expectations
+    # Table-level expectations (using direct method calls for v1.6.1)
     suite.add_expectation(
-        ge.ExpectationConfiguration(
-            expectation_type="expect_table_columns_to_match_set",
-            kwargs={"column_set": set(expected_columns)}
+        ge.expectations.ExpectTableColumnsToMatchSet(
+            column_set=set(expected_columns)
         )
     )
     
     suite.add_expectation(
-        ge.ExpectationConfiguration(
-            expectation_type="expect_table_row_count_to_be_between",
-            kwargs={"min_value": 1, "max_value": 10000000}
+        ge.expectations.ExpectTableRowCountToBeBetween(
+            min_value=1, max_value=10000000
         )
     )
     
