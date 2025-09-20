@@ -76,7 +76,10 @@ def run_simple_validations(df):
     # 4. Check year range
     try:
         if 'year' in df.columns:
-            invalid_years = df[(df['year'] < 2020) | (df['year'] > 2030)]['year'].unique()
+            year_col = df['year']
+            if hasattr(year_col.dtype, 'categories'):
+                year_col = year_col.cat.as_ordered()
+            invalid_years = year_col[(year_col < 2020) | (year_col > 2030)].unique()
             success = len(invalid_years) == 0
             validation_results.append(("Year Range", success, f"Invalid years: {list(invalid_years)}"))
             if success:
@@ -93,7 +96,10 @@ def run_simple_validations(df):
     # 5. Check month range
     try:
         if 'month' in df.columns:
-            invalid_months = df[(df['month'] < 1) | (df['month'] > 12)]['month'].unique()
+            month_col = df['month']
+            if hasattr(month_col.dtype, 'categories'):
+                month_col = month_col.cat.as_ordered()
+            invalid_months = month_col[(month_col < 1) | (month_col > 12)].unique()
             success = len(invalid_months) == 0
             validation_results.append(("Month Range", success, f"Invalid months: {list(invalid_months)}"))
             if success:
@@ -110,7 +116,10 @@ def run_simple_validations(df):
     # 6. Check day range
     try:
         if 'day' in df.columns:
-            invalid_days = df[(df['day'] < 1) | (df['day'] > 31)]['day'].unique()
+            day_col = df['day']
+            if hasattr(day_col.dtype, 'categories'):
+                day_col = day_col.cat.as_ordered()
+            invalid_days = day_col[(day_col < 1) | (day_col > 31)].unique()
             success = len(invalid_days) == 0
             validation_results.append(("Day Range", success, f"Invalid days: {list(invalid_days)}"))
             if success:
