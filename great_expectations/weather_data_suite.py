@@ -79,7 +79,9 @@ def run_simple_validations(df):
             year_col = df['year']
             if hasattr(year_col.dtype, 'categories'):
                 year_col = year_col.cat.as_ordered()
-            invalid_years = year_col[(year_col < 2020) | (year_col > 2030)].unique()
+            # Convert to numeric for comparison
+            year_numeric = pd.to_numeric(year_col, errors='coerce')
+            invalid_years = year_numeric[(year_numeric < 2020) | (year_numeric > 2030)].unique()
             success = len(invalid_years) == 0
             validation_results.append(("Year Range", success, f"Invalid years: {list(invalid_years)}"))
             if success:
@@ -99,7 +101,9 @@ def run_simple_validations(df):
             month_col = df['month']
             if hasattr(month_col.dtype, 'categories'):
                 month_col = month_col.cat.as_ordered()
-            invalid_months = month_col[(month_col < 1) | (month_col > 12)].unique()
+            # Convert to numeric for comparison
+            month_numeric = pd.to_numeric(month_col, errors='coerce')
+            invalid_months = month_numeric[(month_numeric < 1) | (month_numeric > 12)].unique()
             success = len(invalid_months) == 0
             validation_results.append(("Month Range", success, f"Invalid months: {list(invalid_months)}"))
             if success:
@@ -119,7 +123,9 @@ def run_simple_validations(df):
             day_col = df['day']
             if hasattr(day_col.dtype, 'categories'):
                 day_col = day_col.cat.as_ordered()
-            invalid_days = day_col[(day_col < 1) | (day_col > 31)].unique()
+            # Convert to numeric for comparison
+            day_numeric = pd.to_numeric(day_col, errors='coerce')
+            invalid_days = day_numeric[(day_numeric < 1) | (day_numeric > 31)].unique()
             success = len(invalid_days) == 0
             validation_results.append(("Day Range", success, f"Invalid days: {list(invalid_days)}"))
             if success:
