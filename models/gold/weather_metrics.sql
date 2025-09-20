@@ -5,6 +5,11 @@
     materialized='table',
     pre_hook='INSTALL httpfs; LOAD httpfs;',
     post_hook=["
+        INSTALL httpfs; LOAD httpfs;
+        SET s3_region='us-east-1';
+        SET s3_use_ssl=true;
+        SET s3_access_key_id='{{ env_var('aws_access_key_id') }}';
+        SET s3_secret_access_key='{{ env_var('aws_secret_access_key') }}';
         COPY (SELECT * FROM {{ this }})
         TO 's3://data-eng-bucket-345/gold/weather/'
         (
