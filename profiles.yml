@@ -13,7 +13,7 @@ data_engineering_project:
       settings:
         s3_region: us-east-1
         s3_use_ssl: true
-        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
-        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+        s3_access_key_id: "{{ env_var('aws_access_key_id') }}"
+        s3_secret_access_key: "{{ env_var('aws_secret_access_key') }}"
 
       
