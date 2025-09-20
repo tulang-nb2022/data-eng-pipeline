@@ -165,26 +165,73 @@ def create_gold_layer_expectation_suite(context, suite_name: str = "gold_weather
     print("✅ Expectation suite ready for validation")
     return suite
 
-def read_data_from_s3(s3_path: str) -> Optional[pd.DataFrame]:
-    """Read data from S3 using s3fs"""
+def read_data_from_s3(s3_path: str, end_date: str = None) -> Optional[pd.DataFrame]:
+    """Read data from S3 using s3fs with optional date filtering"""
     try:
         import s3fs
+        from datetime import datetime, timedelta
+        
         fs = s3fs.S3FileSystem()
         
         if s3_path.endswith('/'):
-            # Read all parquet files in directory
-            parquet_files = fs.glob(f"{s3_path}*.parquet")
-            if not parquet_files:
-                print(f"❌ No parquet files found in {s3_path}")
-                return None
+            if end_date:
+                # Parse end_date (YYYYMMDD format)
+                try:
+                    end_dt = datetime.strptime(end_date, "%Y%m%d")
+                    print(f"📅 Reading data up to and including: {end_dt.strftime('%Y-%m-%d')}")
+                except ValueError:
+                    print(f"❌ Invalid date format: {end_date}. Expected YYYYMMDD")
+                    return None
+                
+                # Generate all date paths up to end_date
+                parquet_files = []
+                current_date = datetime(2020, 1, 1)  # Start from reasonable date
+                
+                while current_date <= end_dt:
+                    year = current_date.year
+                    month = current_date.month
+                    day = current_date.day
+                    
+                    # Check if path exists for this date
+                    date_path = f"{s3_path}year={year}/month={month}/day={day}/"
+                    date_files = fs.glob(f"{date_path}*.parquet")
+                    
+                    if date_files:
+                        parquet_files.extend(date_files)
+                        print(f"📁 Found {len(date_files)} files for {year}-{month:02d}-{day:02d}")
+                    
+                    current_date += timedelta(days=1)
+                
+                if not parquet_files:
+                    print(f"❌ No parquet files found for dates up to {end_dt.strftime('%Y-%m-%d')}")
+                    return None
+                    
+            else:
+                # Read all parquet files in directory (original behavior)
+                parquet_files = fs.glob(f"{s3_path}**/*.parquet")
+                if not parquet_files:
+                    print(f"❌ No parquet files found in {s3_path}")
+                    return None
             
+            print(f"📊 Loading {len(parquet_files)} parquet files...")
             dfs = []
-            for file in parquet_files:
-                df = pd.read_parquet(f"s3://{file}")
-                dfs.append(df)
+            for i, file in enumerate(parquet_files):
+                try:
+                    df = pd.read_parquet(f"s3://{file}")
+                    dfs.append(df)
+                    if (i + 1) % 10 == 0:  # Progress indicator
+                        print(f"   Loaded {i + 1}/{len(parquet_files)} files...")
+                except Exception as e:
+                    print(f"⚠️  Error loading {file}: {e}")
+                    continue
             
             if dfs:
-                return pd.concat(dfs, ignore_index=True)
+                combined_df = pd.concat(dfs, ignore_index=True)
+                print(f"✅ Successfully loaded {len(combined_df):,} records from {len(dfs)} files")
+                return combined_df
+            else:
+                print("❌ No valid data files found")
+                return None
         else:
             # Read single file
             return pd.read_parquet(s3_path)
@@ -212,6 +259,7 @@ def read_data_from_duckdb(db_path: str, table_name: str) -> Optional[pd.DataFram
 def validate_gold_layer_data(
     data_source: str,
     context_path: str = "great_expectations",
+    end_date: str = None,
     **kwargs
 ) -> Optional[Dict[str, Any]]:
     """Validate gold layer weather data using Great Expectations"""
@@ -233,7 +281,7 @@ def validate_gold_layer_data(
     df = None
     if data_source.startswith("s3://"):
         print(f"📁 Reading from S3: {data_source}")
-        df = read_data_from_s3(data_source)
+        df = read_data_from_s3(data_source, end_date)
     elif data_source.startswith("duckdb://"):
         # Format: duckdb://path/to/db.db/schema.table
         parts = data_source.replace("duckdb://", "").split("/")
@@ -381,10 +429,13 @@ def initialize_great_expectations_project(project_root: str = "great_expectation
     
     return None  # No context needed for simplified approach
 
-def validate_s3_gold_data(s3_path: str):
+def validate_s3_gold_data(s3_path: str, end_date: str = None):
     """Validate gold data stored in S3"""
-    print(f"🔍 Validating S3 gold data: {s3_path}")
-    return validate_gold_layer_data(s3_path)
+    if end_date:
+        print(f"🔍 Validating S3 gold data up to {end_date}: {s3_path}")
+    else:
+        print(f"🔍 Validating S3 gold data: {s3_path}")
+    return validate_gold_layer_data(s3_path, end_date=end_date)
 
 def validate_duckdb_gold_data(db_path: str, table_name: str):
     """Validate gold data in DuckDB"""
@@ -399,10 +450,13 @@ if __name__ == "__main__":
         if sys.argv[1] == "s3":
             if len(sys.argv) > 2:
                 s3_path = sys.argv[2]
-                validate_s3_gold_data(s3_path)
+                end_date = sys.argv[3] if len(sys.argv) > 3 else None
+                validate_s3_gold_data(s3_path, end_date)
             else:
-                print("Usage: python weather_data_suite.py s3 <s3_path>")
+                print("Usage: python weather_data_suite.py s3 <s3_path> [end_date]")
                 print("Example: python weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/")
+                print("Example: python weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/ 20250919")
+                print("         (end_date format: YYYYMMDD - validates all data up to and including that date)")
         elif sys.argv[1] == "duckdb":
             if len(sys.argv) > 3:
                 db_path = sys.argv[2]
@@ -411,10 +465,31 @@ if __name__ == "__main__":
             else:
                 print("Usage: python weather_data_suite.py duckdb <db_path> <table_name>")
                 print("Example: python weather_data_suite.py duckdb gold_layer_test.duckdb gold_layer_test.gold.weather_metrics")
+        elif sys.argv[1] == "help":
+            print("Great Expectations Weather Data Validation")
+            print("=" * 50)
+            print("Usage:")
+            print("  python weather_data_suite.py s3 <s3_path> [end_date]")
+            print("  python weather_data_suite.py duckdb <db_path> <table_name>")
+            print("")
+            print("S3 Examples:")
+            print("  # Validate all S3 data")
+            print("  python weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/")
+            print("")
+            print("  # Validate S3 data up to specific date (inclusive)")
+            print("  python weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/ 20250919")
+            print("  python weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/ 20250101")
+            print("")
+            print("DuckDB Examples:")
+            print("  python weather_data_suite.py duckdb gold_layer_test.duckdb gold_layer_test.gold.weather_metrics")
+            print("")
+            print("Date Format: YYYYMMDD (e.g., 20250919 for September 19, 2025)")
+            print("The script will automatically find all partitioned data up to and including the specified date.")
         else:
             print("Usage:")
-            print("  python weather_data_suite.py s3 <s3_path>                    # Validate S3 gold data")
+            print("  python weather_data_suite.py s3 <s3_path> [end_date]                    # Validate S3 gold data")
             print("  python weather_data_suite.py duckdb <db_path> <table_name>  # Validate DuckDB gold data")
+            print("  python weather_data_suite.py help                                      # Show detailed help")
     else:
         # Default: validate DuckDB gold data
         print("🔍 Validating DuckDB gold data (default)")

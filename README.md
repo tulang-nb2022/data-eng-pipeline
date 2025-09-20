@@ -405,7 +405,7 @@ dbt run --select weather_metrics --full-refresh
 **Great Expectations Integration**:
 ```bash
 # Validate the gold layer data from S3
-python great_expectations/weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/
+python great_expectations/weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/ 20250919
 ```
 
 ### Monitoring with Airflow
