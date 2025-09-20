@@ -322,7 +322,12 @@ def validate_gold_layer_data(
     if 'data_source' in df.columns:
         print(f"   Data sources: {df['data_source'].value_counts().to_dict()}")
     if 'year' in df.columns:
-        print(f"   Year range: {df['year'].astype('category').cat.as_ordered().min()} - {df['year'].cat.as_ordered().max()}")
+        # Handle both numeric and categorical year columns
+        year_col = df['year']
+        if hasattr(year_col.dtype, 'categories'):
+            # It's categorical, convert to ordered for min/max operations
+            year_col = year_col.cat.as_ordered()
+        print(f"   Year range: {year_col.min()} - {year_col.max()}")
     if 'city' in df.columns:
         print(f"   Cities: {df['city'].value_counts().head().to_dict()}")
     
