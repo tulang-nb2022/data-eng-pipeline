@@ -10,7 +10,7 @@ from datetime import datetime
 import os
 import json
 import great_expectations as ge
-from great_expectations.data_context import BaseDataContext
+from great_expectations.data_context import FileDataContext
 from great_expectations.core.batch import RuntimeBatchRequest
 import boto3
 from typing import Dict, Any, Optional, List
@@ -21,7 +21,7 @@ import glob
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def create_gold_layer_expectation_suite(context: BaseDataContext, suite_name: str = "gold_weather_metrics_suite"):
+def create_gold_layer_expectation_suite(context: FileDataContext, suite_name: str = "gold_weather_metrics_suite"):
     """Create expectation suite for gold layer weather metrics"""
     
     try:
@@ -231,7 +231,7 @@ def validate_gold_layer_data(
     
     # Initialize Great Expectations context
     try:
-        context = BaseDataContext(project_root_dir=context_path)
+        context = FileDataContext.create(project_root_dir=context_path)
         print("✅ Great Expectations context initialized")
     except Exception as e:
         print(f"❌ Failed to initialize context: {e}")
@@ -402,9 +402,9 @@ def initialize_great_expectations_project(project_root: str = "great_expectation
     
     try:
         # Initialize Great Expectations context
-        context = BaseDataContext(project_root_dir=project_root)
+        context = FileDataContext.create(project_root_dir=project_root)
         
-        # Create datasource configuration
+        # Create datasource configuration for v1.6.1
         datasource_config = {
             "name": "pandas_datasource",
             "class_name": "Datasource",
@@ -454,20 +454,20 @@ if __name__ == "__main__":
                 s3_path = sys.argv[2]
                 validate_s3_gold_data(s3_path)
             else:
-                print("Usage: python weather_data_suite_fixed.py s3 <s3_path>")
-                print("Example: python weather_data_suite_fixed.py s3 s3://data-eng-bucket-345/gold/weather/")
+                print("Usage: python weather_data_suite.py s3 <s3_path>")
+                print("Example: python weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/")
         elif sys.argv[1] == "duckdb":
             if len(sys.argv) > 3:
                 db_path = sys.argv[2]
                 table_name = sys.argv[3]
                 validate_duckdb_gold_data(db_path, table_name)
             else:
-                print("Usage: python weather_data_suite_fixed.py duckdb <db_path> <table_name>")
-                print("Example: python weather_data_suite_fixed.py duckdb gold_layer_test.duckdb gold_layer_test.gold.weather_metrics")
+                print("Usage: python weather_data_suite.py duckdb <db_path> <table_name>")
+                print("Example: python weather_data_suite.py duckdb gold_layer_test.duckdb gold_layer_test.gold.weather_metrics")
         else:
             print("Usage:")
-            print("  python weather_data_suite_fixed.py s3 <s3_path>                    # Validate S3 gold data")
-            print("  python weather_data_suite_fixed.py duckdb <db_path> <table_name>  # Validate DuckDB gold data")
+            print("  python weather_data_suite.py s3 <s3_path>                    # Validate S3 gold data")
+            print("  python weather_data_suite.py duckdb <db_path> <table_name>  # Validate DuckDB gold data")
     else:
         # Default: validate DuckDB gold data
         print("🔍 Validating DuckDB gold data (default)")
