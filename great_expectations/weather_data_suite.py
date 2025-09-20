@@ -322,7 +322,7 @@ def validate_gold_layer_data(
     if 'data_source' in df.columns:
         print(f"   Data sources: {df['data_source'].value_counts().to_dict()}")
     if 'year' in df.columns:
-        print(f"   Year range: {df['year'].min()} - {df['year'].max()}")
+        print(f"   Year range: {df['year'].as_ordered().min()} - {df['year'].as_ordered().max()}")
     if 'city' in df.columns:
         print(f"   Cities: {df['city'].value_counts().head().to_dict()}")
     
