@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+Great Expectations Data Quality Validation for Weather Data Pipeline
+Updated for the current gold layer schema
+"""
+
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -9,13 +15,14 @@ from great_expectations.core.batch import RuntimeBatchRequest
 import boto3
 from typing import Dict, Any, Optional, List
 import logging
+import glob
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def create_weather_data_expectation_suite(context: BaseDataContext, suite_name: str = "weather_data_suite"):
-    """Create a comprehensive expectation suite for weather data validation"""
+def create_gold_layer_expectation_suite(context: BaseDataContext, suite_name: str = "gold_weather_metrics_suite"):
+    """Create expectation suite for gold layer weather metrics"""
     
     try:
         suite = context.get_or_create_expectation_suite(suite_name)
@@ -27,35 +34,43 @@ def create_weather_data_expectation_suite(context: BaseDataContext, suite_name: 
     # Clear existing expectations
     suite.expectations = []
     
-    # Essential column expectations - least likely to fail
-    essential_columns = [
-        "processing_timestamp", "year", "month", "day", "data_source"
+    # Expected columns in gold layer (based on your current schema)
+    expected_columns = [
+        "data_source", "year", "month", "day", "city",
+        "avg_temperature", "max_temperature", "min_temperature", "temperature_stddev",
+        "avg_humidity", "max_humidity", "min_humidity",
+        "avg_pressure", "max_pressure", "min_pressure",
+        "avg_wind_speed", "max_wind_speed",
+        "avg_visibility", "min_visibility",
+        "avg_quality_score", "record_count",
+        "latest_processing_timestamp", "earliest_processing_timestamp",
+        "weather_alert_type", "alert_severity", "gold_processing_timestamp"
     ]
     
-    # Add table-level expectations
+    # Table-level expectations
     suite.add_expectation(
         ge.core.ExpectationConfiguration(
-            expectation_type="expect_table_columns_to_match_ordered_list",
-            kwargs={"column_list": essential_columns}
+            expectation_type="expect_table_columns_to_match_set",
+            kwargs={"column_set": set(expected_columns)}
         )
     )
     
     suite.add_expectation(
         ge.core.ExpectationConfiguration(
             expectation_type="expect_table_row_count_to_be_between",
-            kwargs={"min_value": 1, "max_value": 10000000}  # Big data range
+            kwargs={"min_value": 1, "max_value": 10000000}
         )
     )
     
-    # Add column-level expectations for essential fields
+    # Essential columns that should not be null
+    essential_columns = ["data_source", "year", "month", "day", "city"]
     for column in essential_columns:
-        # Non-null expectations for essential columns
-    suite.add_expectation(
-        ge.core.ExpectationConfiguration(
-            expectation_type="expect_column_values_to_not_be_null",
+        suite.add_expectation(
+            ge.core.ExpectationConfiguration(
+                expectation_type="expect_column_values_to_not_be_null",
                 kwargs={"column": column}
             )
-    )
+        )
     
     # Data source validation
     suite.add_expectation(
@@ -102,6 +117,54 @@ def create_weather_data_expectation_suite(context: BaseDataContext, suite_name: 
         )
     )
     
+    # Temperature validations (more lenient)
+    suite.add_expectation(
+        ge.core.ExpectationConfiguration(
+            expectation_type="expect_column_values_to_be_between",
+            kwargs={
+                "column": "avg_temperature",
+                "min_value": -100,  # Very lenient
+                "max_value": 100,
+                "mostly": 0.8  # Allow 20% of values to be outside range
+            }
+        )
+    )
+    
+    # Record count validation
+    suite.add_expectation(
+        ge.core.ExpectationConfiguration(
+            expectation_type="expect_column_values_to_be_between",
+            kwargs={
+                "column": "record_count",
+                "min_value": 1,
+                "max_value": 1000000
+            }
+        )
+    )
+    
+    # Weather alert type validation
+    suite.add_expectation(
+        ge.core.ExpectationConfiguration(
+            expectation_type="expect_column_values_to_be_in_set",
+            kwargs={
+                "column": "weather_alert_type",
+                "value_set": ["HIGH_TEMPERATURE", "LOW_TEMPERATURE", "HIGH_WIND", 
+                           "LOW_VISIBILITY", "LOW_PRESSURE", "NORMAL"]
+            }
+        )
+    )
+    
+    # Alert severity validation
+    suite.add_expectation(
+        ge.core.ExpectationConfiguration(
+            expectation_type="expect_column_values_to_be_in_set",
+            kwargs={
+                "column": "alert_severity",
+                "value_set": ["SEVERE", "HIGH", "MEDIUM", "LOW"]
+            }
+        )
+    )
+    
     # Save the suite
     try:
         context.save_expectation_suite(suite)
@@ -139,36 +202,31 @@ def read_data_from_s3(s3_path: str) -> Optional[pd.DataFrame]:
         print(f"❌ Error reading from S3: {e}")
         return None
 
-def read_data_from_athena(database: str, table: str, region: str = "us-east-1") -> Optional[pd.DataFrame]:
-    """Read data from Athena table"""
+def read_data_from_duckdb(db_path: str, table_name: str) -> Optional[pd.DataFrame]:
+    """Read data from DuckDB database"""
     try:
-        from pyathena import connect
+        import duckdb
         
-        # Create connection
-        conn = connect(
-            s3_staging_dir='s3://your-athena-results-bucket/temp/',
-            region_name=region
-        )
-        
-        # Query the table
-        query = f"SELECT * FROM {database}.{table} LIMIT 10000"  # Limit for validation
-        df = pd.read_sql(query, conn)
+        conn = duckdb.connect(db_path)
+        query = f"SELECT * FROM {table_name}"
+        df = conn.execute(query).fetchdf()
+        conn.close()
         
         return df
         
     except Exception as e:
-        print(f"❌ Error reading from Athena: {e}")
+        print(f"❌ Error reading from DuckDB: {e}")
         return None
 
-def validate_weather_data_great_expectations(
+def validate_gold_layer_data(
     data_source: str,
     context_path: str = "great_expectations",
     **kwargs
 ) -> Optional[Dict[str, Any]]:
-    """Validate weather data using Great Expectations"""
+    """Validate gold layer weather data using Great Expectations"""
     
     print("="*60)
-    print("GREAT EXPECTATIONS DATA QUALITY VALIDATION")
+    print("GREAT EXPECTATIONS - GOLD LAYER VALIDATION")
     print("="*60)
     
     # Initialize Great Expectations context
@@ -180,7 +238,7 @@ def validate_weather_data_great_expectations(
         return None
     
     # Create expectation suite
-    suite = create_weather_data_expectation_suite(context)
+    suite = create_gold_layer_expectation_suite(context)
     if not suite:
         return None
     
@@ -189,28 +247,28 @@ def validate_weather_data_great_expectations(
     if data_source.startswith("s3://"):
         print(f"📁 Reading from S3: {data_source}")
         df = read_data_from_s3(data_source)
-    elif data_source.startswith("athena://"):
-        # Format: athena://database/table
-        parts = data_source.replace("athena://", "").split("/")
-        if len(parts) == 2:
-            database, table = parts
-            print(f"📊 Reading from Athena: {database}.{table}")
-            df = read_data_from_athena(database, table, **kwargs)
+    elif data_source.startswith("duckdb://"):
+        # Format: duckdb://path/to/db.db/schema.table
+        parts = data_source.replace("duckdb://", "").split("/")
+        if len(parts) >= 2:
+            db_path = parts[0]
+            table_name = "/".join(parts[1:])
+            print(f"📊 Reading from DuckDB: {db_path}/{table_name}")
+            df = read_data_from_duckdb(db_path, table_name)
     else:
         # Local file system
         print(f"📁 Reading from local path: {data_source}")
         if os.path.isdir(data_source):
-    import glob
             parquet_files = glob.glob(f"{data_source}/**/*.parquet", recursive=True)
             if parquet_files:
-    dfs = []
-    for file in parquet_files:
-        try:
+                dfs = []
+                for file in parquet_files:
+                    try:
                         df_file = pd.read_parquet(file)
                         dfs.append(df_file)
-        except Exception as e:
-            print(f"❌ Error loading {file}: {e}")
-    
+                    except Exception as e:
+                        print(f"❌ Error loading {file}: {e}")
+                
                 if dfs:
                     df = pd.concat(dfs, ignore_index=True)
         else:
@@ -233,13 +291,15 @@ def validate_weather_data_great_expectations(
         print(f"   Data sources: {df['data_source'].value_counts().to_dict()}")
     if 'year' in df.columns:
         print(f"   Year range: {df['year'].min()} - {df['year'].max()}")
+    if 'city' in df.columns:
+        print(f"   Cities: {df['city'].value_counts().head().to_dict()}")
     
     # Create batch request for Great Expectations
     try:
         batch_request = RuntimeBatchRequest(
             datasource_name="pandas_datasource",
             data_connector_name="default_runtime_data_connector_name",
-            data_asset_name="weather_data",
+            data_asset_name="gold_weather_data",
             runtime_parameters={"batch_data": df},
             batch_identifiers={"default_identifier_name": "default_identifier"}
         )
@@ -247,7 +307,7 @@ def validate_weather_data_great_expectations(
         # Create validator
         validator = context.get_validator(
             batch_request=batch_request,
-            expectation_suite_name=suite_name
+            expectation_suite_name="gold_weather_metrics_suite"
         )
         
         # Run validation
@@ -324,10 +384,16 @@ def display_validation_results(results, df):
         year_range = f"{df['year'].min()} - {df['year'].max()}"
         print(f"Year range: {year_range}")
     
+    if "weather_alert_type" in df.columns:
+        alert_counts = df["weather_alert_type"].value_counts()
+        print("Weather alert distribution:")
+        for alert, count in alert_counts.items():
+            print(f"  {alert}: {count:,} records")
+    
     print("\n" + "="*60)
 
 def initialize_great_expectations_project(project_root: str = "great_expectations"):
-    """Initialize Great Expectations project with S3 and Athena support"""
+    """Initialize Great Expectations project"""
     
     print("🚀 Initializing Great Expectations project...")
     
@@ -338,7 +404,7 @@ def initialize_great_expectations_project(project_root: str = "great_expectation
         # Initialize Great Expectations context
         context = BaseDataContext(project_root_dir=project_root)
         
-        # Create datasource configuration for v0.15.2
+        # Create datasource configuration
         datasource_config = {
             "name": "pandas_datasource",
             "class_name": "Datasource",
@@ -368,42 +434,16 @@ def initialize_great_expectations_project(project_root: str = "great_expectation
         print(f"❌ Failed to initialize Great Expectations: {e}")
         return None
 
-def run_data_quality_validation(data_path: str = "data/processed"):
-    """Main function to run comprehensive data quality validation"""
-    
-    print("🔍 Starting Data Quality Validation Pipeline")
-    print("="*60)
-    
-    # Initialize Great Expectations
-    context = initialize_great_expectations_project()
-    if not context:
-        print("❌ Failed to initialize Great Expectations")
-        return
-    
-    # Validate data
-    results = validate_weather_data_great_expectations(data_path)
-    
-    if results:
-        print(f"\n🎉 Validation completed!")
-        print(f"📊 Success Rate: {results['successful_expectations']}/{results['expectations_checked']} expectations passed")
-        
-        if results['success']:
-            print("✅ All data quality checks passed!")
-        else:
-            print("⚠️  Some data quality issues detected - review results above")
-    else:
-        print("❌ Validation failed - no data found or processing error")
+def validate_s3_gold_data(s3_path: str):
+    """Validate gold data stored in S3"""
+    print(f"🔍 Validating S3 gold data: {s3_path}")
+    return validate_gold_layer_data(s3_path)
 
-def validate_s3_data(s3_path: str):
-    """Validate data stored in S3"""
-    print(f"🔍 Validating S3 data: {s3_path}")
-    return validate_weather_data_great_expectations(s3_path)
-
-def validate_athena_table(database: str, table: str, region: str = "us-east-1"):
-    """Validate data in Athena table"""
-    athena_path = f"athena://{database}/{table}"
-    print(f"🔍 Validating Athena table: {database}.{table}")
-    return validate_weather_data_great_expectations(athena_path, region=region)
+def validate_duckdb_gold_data(db_path: str, table_name: str):
+    """Validate gold data in DuckDB"""
+    duckdb_path = f"duckdb://{db_path}/{table_name}"
+    print(f"🔍 Validating DuckDB gold data: {db_path}/{table_name}")
+    return validate_gold_layer_data(duckdb_path)
 
 if __name__ == "__main__":
     import sys
@@ -412,22 +452,23 @@ if __name__ == "__main__":
         if sys.argv[1] == "s3":
             if len(sys.argv) > 2:
                 s3_path = sys.argv[2]
-                validate_s3_data(s3_path)
+                validate_s3_gold_data(s3_path)
             else:
-                print("Usage: python weather_data_suite.py s3 <s3_path>")
-                print("Example: python weather_data_suite.py s3 s3://my-bucket/weather-data/")
-        elif sys.argv[1] == "athena":
+                print("Usage: python weather_data_suite_fixed.py s3 <s3_path>")
+                print("Example: python weather_data_suite_fixed.py s3 s3://data-eng-bucket-345/gold/weather/")
+        elif sys.argv[1] == "duckdb":
             if len(sys.argv) > 3:
-                database = sys.argv[2]
-                table = sys.argv[3]
-                validate_athena_table(database, table)
+                db_path = sys.argv[2]
+                table_name = sys.argv[3]
+                validate_duckdb_gold_data(db_path, table_name)
             else:
-                print("Usage: python weather_data_suite.py athena <database> <table>")
-                print("Example: python weather_data_suite.py athena weather_db processed_weather_data")
+                print("Usage: python weather_data_suite_fixed.py duckdb <db_path> <table_name>")
+                print("Example: python weather_data_suite_fixed.py duckdb gold_layer_test.duckdb gold_layer_test.gold.weather_metrics")
         else:
             print("Usage:")
-            print("  python weather_data_suite.py                    # Validate local data")
-            print("  python weather_data_suite.py s3 <s3_path>       # Validate S3 data")
-            print("  python weather_data_suite.py athena <db> <table> # Validate Athena table")
+            print("  python weather_data_suite_fixed.py s3 <s3_path>                    # Validate S3 gold data")
+            print("  python weather_data_suite_fixed.py duckdb <db_path> <table_name>  # Validate DuckDB gold data")
     else:
-    run_data_quality_validation() 
+        # Default: validate DuckDB gold data
+        print("🔍 Validating DuckDB gold data (default)")
+        validate_duckdb_gold_data("gold_layer_test.duckdb", "gold_layer_test.gold.weather_metrics")

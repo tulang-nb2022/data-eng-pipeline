@@ -384,10 +384,10 @@ Kafka → Bronze (Spark) → Silver (Spark) → Gold (dbt)
 
 **Spark Pipeline (Bronze + Silver)**:
 ```bash
-# Bronze layer (streaming)
+# --> Bronze layer (streaming)
 ./run_transform.sh bronze weather-forecast noaa s3://my-bucket/bronze/weather
 
-# Silver layer (batch)
+# --> Silver layer (batch)
 ./run_transform.sh silver weather-forecast noaa s3://my-bucket/bronze/weather s3://my-bucket/silver/weather
 
 # Both layers
@@ -396,25 +396,16 @@ Kafka → Bronze (Spark) → Silver (Spark) → Gold (dbt)
 
 **dbt Gold Layer**:
 ```bash
-# Run gold layer models
-./run_dbt_gold.sh data_engineering_project dev s3://my-bucket/silver/weather s3://my-bucket/gold/weather
-
-# Or directly with dbt
-dbt run --models gold
+# 1. --> Run the gold model
+dbt run --select weather_metrics --full-refresh
 ```
 
 #### Data Quality Validation
 
 **Great Expectations Integration**:
 ```bash
-# Validate bronze data
-python great_expectations/simple_validation.py s3 s3://my-bucket/bronze/weather
-
-# Validate silver data
-python great_expectations/simple_validation.py s3 s3://my-bucket/silver/weather
-
-# Validate gold data
-python great_expectations/simple_validation.py s3 s3://my-bucket/gold/weather
+# Validate the gold layer data from S3
+python great_expectations/weather_data_suite.py s3 s3://data-eng-bucket-345/gold/weather/
 ```
 
 ### Monitoring with Airflow
