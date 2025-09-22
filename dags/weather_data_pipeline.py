@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.operators.empty import EmptyOperator
+from airflow.providers.standard.operators.empty import EmptyOperator
 import subprocess
 import time
 import logging
@@ -34,7 +34,7 @@ dag = DAG(
     'weather_data_pipeline',
     default_args=default_args,
     description='Complete weather data pipeline: Bronze -> Silver -> Gold -> Validation -> S3 Copy',
-    schedule_interval=None,  # Manual trigger only
+    schedule=None,  # Manual trigger only (replaces schedule_interval)
     max_active_runs=1,
     tags=['weather', 'data-pipeline', 'bronze', 'silver', 'gold']
 )
