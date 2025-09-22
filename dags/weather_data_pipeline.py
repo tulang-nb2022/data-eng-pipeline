@@ -6,9 +6,9 @@ Orchestrates: Bronze (55min streaming) -> Silver (batch) -> Gold (batch) -> Grea
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.operators.bash import BashOperator
-from airflow.operators.python import PythonOperator
-from airflow.operators.dummy import DummyOperator
+from airflow.providers.standard.operators.bash import BashOperator
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.operators.empty import EmptyOperator
 import subprocess
 import time
 import logging
@@ -172,7 +172,7 @@ def copy_to_processed_s3(**context):
         raise Exception(f"S3 copy failed: {result.stderr}")
 
 # Task definitions
-start_pipeline = DummyOperator(
+start_pipeline = EmptyOperator(
     task_id='start_pipeline',
     dag=dag
 )
@@ -207,7 +207,7 @@ s3_copy_task = PythonOperator(
     dag=dag
 )
 
-end_pipeline = DummyOperator(
+end_pipeline = EmptyOperator(
     task_id='end_pipeline',
     dag=dag
 )
