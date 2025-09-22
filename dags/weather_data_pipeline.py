@@ -214,3 +214,6 @@ end_pipeline = EmptyOperator(
 
 # Task dependencies - sequential pipeline
 start_pipeline >> bronze_streaming_task >> silver_batch_task >> gold_batch_task >> validation_task >> s3_copy_task >> end_pipeline
+
+# Ensure DAG is in global namespace for Airflow 3.0.2
+globals()[dag.dag_id] = dag
