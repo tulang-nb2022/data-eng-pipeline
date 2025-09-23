@@ -107,11 +107,11 @@ def run_gold_layer(**context):
     logger.info("Starting gold layer processing with dbt...")
     
     cmd = [
-        "./run_dbt_gold.sh",
-        "data_engineering_project",
-        "dev",
-        "s3://data-eng-bucket-345/silver/weather",
-        "s3://data-eng-bucket-345/gold/weather"
+        "dbt",
+        "run",
+        "--select",
+        "weather_metrics",
+        "--full-refresh"
     ]
     
     logger.info(f"Running gold command: {' '.join(cmd)}")
