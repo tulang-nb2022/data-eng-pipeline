@@ -6,9 +6,9 @@ Orchestrates: Bronze (55min streaming) -> Silver (batch) -> Gold (batch) -> Grea
 
 from datetime import datetime, timedelta
 from airflow import DAG
-from airflow.providers.standard.operators.bash import BashOperator
-from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.standard.operators.empty import EmptyOperator
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from airflow.operators.empty import EmptyOperator
 import subprocess
 import time
 import logging
