@@ -12,4 +12,10 @@ setuptools>=65.0.0
 PyAthena==3.0.10
 boto3>=1.26.0
 s3fs>=2023.1.0
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+httpx>=0.25.0
 
