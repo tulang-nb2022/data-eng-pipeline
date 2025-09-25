@@ -76,7 +76,7 @@ class S3ODataServer:
         return credentials.username
     
     def _get_s3_files(self) -> List[Dict[str, Any]]:
-        """Get list of files from S3 bucket with prefix."""
+        """Get list of files and datasets from S3 bucket with prefix."""
         try:
             response = self.s3_client.list_objects_v2(
                 Bucket=self.s3_bucket,
@@ -84,40 +84,137 @@ class S3ODataServer:
             )
             
             files = []
+            datasets = {}  # Group files by dataset name
+            
             if 'Contents' in response:
                 for obj in response['Contents']:
                     if obj['Key'].endswith(('.csv', '.json', '.parquet')):
-                        files.append({
-                            'name': obj['Key'].split('/')[-1],
+                        # Extract dataset name (remove file extension and partition info)
+                        key_parts = obj['Key'].split('/')
+                        filename = key_parts[-1]
+                        
+                        # For partitioned data, try to extract dataset name
+                        # Assumes format like: dataset_name/partition_key=value/file.parquet
+                        if '=' in obj['Key']:
+                            # This looks like partitioned data
+                            dataset_name = key_parts[-3] if len(key_parts) >= 3 else filename.split('.')[0]
+                        else:
+                            dataset_name = filename.split('.')[0]
+                        
+                        file_info = {
+                            'name': filename,
                             'key': obj['Key'],
                             'size': obj['Size'],
-                            'last_modified': obj['LastModified'].isoformat()
-                        })
+                            'last_modified': obj['LastModified'].isoformat(),
+                            'dataset_name': dataset_name
+                        }
+                        
+                        # Group by dataset
+                        if dataset_name not in datasets:
+                            datasets[dataset_name] = {
+                                'name': dataset_name,
+                                'files': [],
+                                'total_size': 0,
+                                'is_partitioned': '=' in obj['Key']
+                            }
+                        
+                        datasets[dataset_name]['files'].append(file_info)
+                        datasets[dataset_name]['total_size'] += obj['Size']
+            
+            # Convert datasets to files list
+            for dataset_name, dataset_info in datasets.items():
+                if dataset_info['is_partitioned']:
+                    # For partitioned data, create a virtual "file" representing the dataset
+                    files.append({
+                        'name': f"{dataset_name}_partitioned",
+                        'key': dataset_name,  # Use dataset name as key
+                        'size': dataset_info['total_size'],
+                        'last_modified': max([f['last_modified'] for f in dataset_info['files']]),
+                        'is_partitioned': True,
+                        'partition_count': len(dataset_info['files'])
+                    })
+                else:
+                    # For non-partitioned data, add individual files
+                    files.extend(dataset_info['files'])
+            
             return files
         except Exception as e:
             logger.error(f"Error listing S3 files: {e}")
             raise HTTPException(status_code=500, detail=f"Error accessing S3: {str(e)}")
     
-    def _read_s3_file(self, file_key: str) -> pd.DataFrame:
-        """Read a file from S3 and return as DataFrame."""
+    def _read_s3_file(self, file_key: str, is_partitioned: bool = False) -> pd.DataFrame:
+        """Read a file or partitioned dataset from S3 and return as DataFrame."""
         try:
-            # Get file extension
-            file_ext = file_key.split('.')[-1].lower()
-            
-            # Read file based on extension
-            if file_ext == 'csv':
-                df = pd.read_csv(f's3://{self.s3_bucket}/{file_key}')
-            elif file_ext == 'json':
-                df = pd.read_json(f's3://{self.s3_bucket}/{file_key}')
-            elif file_ext == 'parquet':
-                df = pd.read_parquet(f's3://{self.s3_bucket}/{file_key}')
+            if is_partitioned:
+                # For partitioned data, read all files in the dataset
+                return self._read_partitioned_dataset(file_key)
             else:
-                raise HTTPException(status_code=400, detail=f"Unsupported file format: {file_ext}")
-            
-            return df
+                # For single files, read normally
+                file_ext = file_key.split('.')[-1].lower()
+                
+                # Read file based on extension
+                if file_ext == 'csv':
+                    df = pd.read_csv(f's3://{self.s3_bucket}/{file_key}')
+                elif file_ext == 'json':
+                    df = pd.read_json(f's3://{self.s3_bucket}/{file_key}')
+                elif file_ext == 'parquet':
+                    df = pd.read_parquet(f's3://{self.s3_bucket}/{file_key}')
+                else:
+                    raise HTTPException(status_code=400, detail=f"Unsupported file format: {file_ext}")
+                
+                return df
         except Exception as e:
             logger.error(f"Error reading S3 file {file_key}: {e}")
             raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+    
+    def _read_partitioned_dataset(self, dataset_name: str) -> pd.DataFrame:
+        """Read all files in a partitioned dataset and combine them."""
+        try:
+            # List all files for this dataset
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.s3_bucket,
+                Prefix=f"{self.s3_prefix}{dataset_name}/" if self.s3_prefix else f"{dataset_name}/"
+            )
+            
+            if 'Contents' not in response:
+                raise HTTPException(status_code=404, detail=f"No files found for dataset {dataset_name}")
+            
+            # Collect all data files
+            dataframes = []
+            for obj in response['Contents']:
+                if obj['Key'].endswith(('.csv', '.json', '.parquet')):
+                    file_ext = obj['Key'].split('.')[-1].lower()
+                    
+                    try:
+                        if file_ext == 'csv':
+                            df = pd.read_csv(f's3://{self.s3_bucket}/{obj["Key"]}')
+                        elif file_ext == 'json':
+                            df = pd.read_json(f's3://{self.s3_bucket}/{obj["Key"]}')
+                        elif file_ext == 'parquet':
+                            df = pd.read_parquet(f's3://{self.s3_bucket}/{obj["Key"]}')
+                        
+                        # Add partition information as columns
+                        key_parts = obj['Key'].split('/')
+                        for part in key_parts:
+                            if '=' in part:
+                                partition_key, partition_value = part.split('=', 1)
+                                df[partition_key] = partition_value
+                        
+                        dataframes.append(df)
+                    except Exception as e:
+                        logger.warning(f"Error reading partition file {obj['Key']}: {e}")
+                        continue
+            
+            if not dataframes:
+                raise HTTPException(status_code=404, detail=f"No readable files found for dataset {dataset_name}")
+            
+            # Combine all dataframes
+            combined_df = pd.concat(dataframes, ignore_index=True)
+            return combined_df
+            
+        except Exception as e:
+            logger.error(f"Error reading partitioned dataset {dataset_name}: {e}")
+            raise HTTPException(status_code=500, detail=f"Error reading partitioned dataset: {str(e)}")
     
     def _setup_routes(self):
         """Setup FastAPI routes."""
@@ -132,7 +229,8 @@ class S3ODataServer:
                 "endpoints": {
                     "metadata": "/$metadata",
                     "files": "/files",
-                    "data": "/data/{file_name}"
+                    "data": "/data/{file_name}",
+                    "partitions": "/partitions/{dataset_name}"
                 }
             }
         
@@ -182,48 +280,49 @@ class S3ODataServer:
         async def get_data(
             file_name: str,
             username: str = Depends(self._verify_credentials),
-            $top: Optional[int] = None,
-            $skip: Optional[int] = None,
-            $filter: Optional[str] = None,
-            $select: Optional[str] = None,
-            $orderby: Optional[str] = None
+            top: Optional[int] = None,
+            skip: Optional[int] = None,
+            filter: Optional[str] = None,
+            select: Optional[str] = None,
+            orderby: Optional[str] = None
         ):
             """OData endpoint to get data from S3 files."""
             # Find the file key
             files = self._get_s3_files()
-            file_key = None
-            for file_info in files:
-                if file_info['name'] == file_name:
-                    file_key = file_info['key']
+            file_info = None
+            for f in files:
+                if f['name'] == file_name:
+                    file_info = f
                     break
             
-            if not file_key:
+            if not file_info:
                 raise HTTPException(status_code=404, detail=f"File {file_name} not found")
             
             # Read data from S3
-            df = self._read_s3_file(file_key)
+            is_partitioned = file_info.get('is_partitioned', False)
+            df = self._read_s3_file(file_info['key'], is_partitioned=is_partitioned)
             
             # Apply OData query parameters
-            if $filter:
+            if filter:
                 # Basic filtering - you can extend this for more complex filters
-                df = self._apply_filter(df, $filter)
+                df = self._apply_filter(df, filter)
             
-            if $select:
+            if select:
                 # Select specific columns
-                columns = [col.strip() for col in $select.split(',')]
+                columns = [col.strip() for col in select.split(',')]
                 available_columns = [col for col in columns if col in df.columns]
                 if available_columns:
                     df = df[available_columns]
             
-            if $orderby:
+            if orderby:
                 # Apply ordering
-                df = self._apply_orderby(df, $orderby)
+                df = self._apply_orderby(df, orderby)
             
             # Apply pagination
-            if $skip:
-                df = df.iloc[$skip:]
-            if $top:
-                df = df.head($top)
+            if skip:
+                df = df.iloc[skip:]
+            if top:
+                df = df.head(top)
             
             # Convert to OData format
             result = {
@@ -232,6 +331,47 @@ class S3ODataServer:
             }
             
             return result
+        
+        @self.app.get("/partitions/{dataset_name}")
+        async def get_partitions(
+            dataset_name: str,
+            username: str = Depends(self._verify_credentials)
+        ):
+            """Get partition information for a dataset."""
+            try:
+                # List all files for this dataset
+                response = self.s3_client.list_objects_v2(
+                    Bucket=self.s3_bucket,
+                    Prefix=f"{self.s3_prefix}{dataset_name}/" if self.s3_prefix else f"{dataset_name}/"
+                )
+                
+                if 'Contents' not in response:
+                    raise HTTPException(status_code=404, detail=f"Dataset {dataset_name} not found")
+                
+                partitions = {}
+                for obj in response['Contents']:
+                    if obj['Key'].endswith(('.csv', '.json', '.parquet')):
+                        key_parts = obj['Key'].split('/')
+                        for part in key_parts:
+                            if '=' in part:
+                                partition_key, partition_value = part.split('=', 1)
+                                if partition_key not in partitions:
+                                    partitions[partition_key] = set()
+                                partitions[partition_key].add(partition_value)
+                
+                # Convert sets to sorted lists
+                result = {}
+                for key, values in partitions.items():
+                    result[key] = sorted(list(values))
+                
+                return {
+                    "dataset": dataset_name,
+                    "partitions": result,
+                    "total_partitions": sum(len(values) for values in partitions.values())
+                }
+            except Exception as e:
+                logger.error(f"Error getting partitions for {dataset_name}: {e}")
+                raise HTTPException(status_code=500, detail=f"Error getting partitions: {str(e)}")
         
         @self.app.get("/health")
         async def health_check():
