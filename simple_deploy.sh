@@ -35,7 +35,7 @@ sudo apt-get install -y \
 
 # Install Python dependencies
 print_status "Installing Python packages..."
-pip3 install --user \
+pip3 install \
     fastapi \
     uvicorn \
     boto3 \
