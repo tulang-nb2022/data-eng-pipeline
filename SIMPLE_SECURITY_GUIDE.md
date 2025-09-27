@@ -79,6 +79,27 @@ ODATA_PORT=8000
 3. URL: `https://your-domain.com` (or `http://your-ip:8000` for testing)
 4. Username/Password: Your configured credentials
 
+### **For Partitioned Data (Hive-style partitions)**
+
+If your S3 data is partitioned like:
+```
+s3://your-bucket/gold/weather/processed/year=2025/month=9/day=19/data_0.parquet
+```
+
+The server will:
+- **Automatically detect** partitioned data
+- **Group partitions** by dataset name (e.g., `weather_processed_partitioned`)
+- **Combine all partitions** into a single dataset
+- **Add partition columns** (`year`, `month`, `day`) to your data
+- **Show partition info** via `/partitions/{dataset_name}` endpoint
+
+### **Available Endpoints**
+
+- `/files` - List all available datasets (partitioned and non-partitioned)
+- `/data/{file_name}` - Get data from a specific dataset
+- `/partitions/{dataset_name}` - Get partition information for a dataset
+- `/health` - Health check
+
 ## 🛡️ **Security Measures Explained**
 
 ### **Prevents Reverse Shells By:**
@@ -119,6 +140,11 @@ curl -u username:password https://your-domain.com/files
 
 # Test invalid input (should be blocked)
 curl -u username:password https://your-domain.com/data/../../../etc/passwd
+
+# Test partitioned data
+curl -u username:password https://your-domain.com/files
+curl -u username:password https://your-domain.com/data/weather_processed_partitioned
+curl -u username:password https://your-domain.com/partitions/weather_processed
 ```
 
 ## ⚠️ **Security Checklist**

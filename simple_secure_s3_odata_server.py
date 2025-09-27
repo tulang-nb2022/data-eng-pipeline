@@ -180,59 +180,176 @@ class SimpleS3ODataServer:
         return credentials.username
     
     def _get_s3_files(self) -> List[Dict[str, Any]]:
-        """Get list of files from S3 bucket with security validation."""
+        """Get list of files and datasets from S3 bucket with security validation."""
         try:
             response = self.s3_client.list_objects_v2(
                 Bucket=self.s3_bucket,
                 Prefix=self.s3_prefix,
-                MaxKeys=100  # Limit results
+                MaxKeys=1000  # Increase for partitioned data
             )
             
             files = []
+            datasets = {}  # Group files by dataset name
+            
             if 'Contents' in response:
                 for obj in response['Contents']:
                     if obj['Key'].endswith(('.csv', '.json', '.parquet')):
-                        filename = obj['Key'].split('/')[-1]
+                        # Extract dataset name and check for partitioning
+                        key_parts = obj['Key'].split('/')
+                        filename = key_parts[-1]
                         
                         # Validate filename for security
                         if not self.security_manager.validate_input(filename, 'file_name'):
                             continue
                         
-                        files.append({
+                        # Check if this is partitioned data (contains = in path)
+                        is_partitioned = any('=' in part for part in key_parts)
+                        
+                        if is_partitioned:
+                            # For partitioned data, use the parent directory as dataset name
+                            # e.g., gold/weather/processed -> weather_processed
+                            dataset_parts = []
+                            for part in key_parts:
+                                if '=' not in part and part not in ['', 'gold', 'processed']:
+                                    dataset_parts.append(part)
+                            dataset_name = '_'.join(dataset_parts) if dataset_parts else 'partitioned_data'
+                        else:
+                            # For non-partitioned data, use filename without extension
+                            dataset_name = filename.split('.')[0]
+                        
+                        # Validate dataset name
+                        if not self.security_manager.validate_input(dataset_name, 'dataset_name'):
+                            continue
+                        
+                        file_info = {
                             'name': filename,
                             'key': obj['Key'],
                             'size': obj['Size'],
-                            'last_modified': obj['LastModified'].isoformat()
-                        })
+                            'last_modified': obj['LastModified'].isoformat(),
+                            'dataset_name': dataset_name,
+                            'is_partitioned': is_partitioned
+                        }
+                        
+                        # Group by dataset
+                        if dataset_name not in datasets:
+                            datasets[dataset_name] = {
+                                'name': dataset_name,
+                                'files': [],
+                                'total_size': 0,
+                                'is_partitioned': is_partitioned,
+                                'partition_info': {}
+                            }
+                        
+                        datasets[dataset_name]['files'].append(file_info)
+                        datasets[dataset_name]['total_size'] += obj['Size']
+                        
+                        # Extract partition information
+                        if is_partitioned:
+                            for part in key_parts:
+                                if '=' in part:
+                                    partition_key, partition_value = part.split('=', 1)
+                                    if partition_key not in datasets[dataset_name]['partition_info']:
+                                        datasets[dataset_name]['partition_info'][partition_key] = set()
+                                    datasets[dataset_name]['partition_info'][partition_key].add(partition_value)
+            
+            # Convert datasets to files list
+            for dataset_name, dataset_info in datasets.items():
+                if dataset_info['is_partitioned']:
+                    # Create a virtual file for the partitioned dataset
+                    files.append({
+                        'name': f"{dataset_name}_partitioned",
+                        'key': dataset_name,  # Use dataset name as key for partitioned data
+                        'size': dataset_info['total_size'],
+                        'last_modified': max([f['last_modified'] for f in dataset_info['files']]),
+                        'is_partitioned': True,
+                        'partition_count': len(dataset_info['files']),
+                        'partition_info': {k: sorted(list(v)) for k, v in dataset_info['partition_info'].items()}
+                    })
+                else:
+                    # Add individual files
+                    files.extend(dataset_info['files'])
             
             return files
         except Exception as e:
             logger.error(f"S3 list error: {e}")
             raise HTTPException(status_code=500, detail="Error accessing data")
     
-    def _read_s3_file(self, file_key: str) -> pd.DataFrame:
-        """Read a file from S3 with security validation."""
+    def _read_s3_file(self, file_key: str, is_partitioned: bool = False) -> pd.DataFrame:
+        """Read a file or partitioned dataset from S3 with security validation."""
         try:
-            # Validate file key
-            if not self.security_manager.validate_input(file_key.split('/')[-1], 'file_name'):
-                raise HTTPException(status_code=400, detail="Invalid file name")
-            
-            file_ext = file_key.split('.')[-1].lower()
-            
-            # Read file with row limits for security
-            if file_ext == 'csv':
-                df = pd.read_csv(f's3://{self.s3_bucket}/{file_key}', nrows=50000)
-            elif file_ext == 'json':
-                df = pd.read_json(f's3://{self.s3_bucket}/{file_key}')
-            elif file_ext == 'parquet':
-                df = pd.read_parquet(f's3://{self.s3_bucket}/{file_key}')
+            if is_partitioned:
+                return self._read_partitioned_dataset(file_key)
             else:
-                raise HTTPException(status_code=400, detail="Unsupported file format")
-            
-            return df
+                # Validate file key
+                if not self.security_manager.validate_input(file_key.split('/')[-1], 'file_name'):
+                    raise HTTPException(status_code=400, detail="Invalid file name")
+                
+                file_ext = file_key.split('.')[-1].lower()
+                
+                # Read file with row limits for security
+                if file_ext == 'csv':
+                    df = pd.read_csv(f's3://{self.s3_bucket}/{file_key}', nrows=50000)
+                elif file_ext == 'json':
+                    df = pd.read_json(f's3://{self.s3_bucket}/{file_key}')
+                elif file_ext == 'parquet':
+                    df = pd.read_parquet(f's3://{self.s3_bucket}/{file_key}')
+                else:
+                    raise HTTPException(status_code=400, detail="Unsupported file format")
+                
+                return df
         except Exception as e:
             logger.error(f"S3 read error: {e}")
             raise HTTPException(status_code=500, detail="Error reading data")
+    
+    def _read_partitioned_dataset(self, dataset_name: str) -> pd.DataFrame:
+        """Read all files in a partitioned dataset and combine them."""
+        try:
+            # List all files in the partitioned dataset
+            response = self.s3_client.list_objects_v2(
+                Bucket=self.s3_bucket,
+                Prefix=f"{self.s3_prefix}{dataset_name}/" if self.s3_prefix else f"{dataset_name}/",
+                MaxKeys=1000  # Limit for security
+            )
+            
+            if 'Contents' not in response:
+                raise HTTPException(status_code=404, detail="Dataset not found")
+            
+            dataframes = []
+            for obj in response['Contents']:
+                if obj['Key'].endswith(('.csv', '.json', '.parquet')):
+                    file_ext = obj['Key'].split('.')[-1].lower()
+                    
+                    try:
+                        # Read file with limits for security
+                        if file_ext == 'csv':
+                            df = pd.read_csv(f's3://{self.s3_bucket}/{obj["Key"]}', nrows=10000)
+                        elif file_ext == 'json':
+                            df = pd.read_json(f's3://{self.s3_bucket}/{obj["Key"]}')
+                        elif file_ext == 'parquet':
+                            df = pd.read_parquet(f's3://{self.s3_bucket}/{obj["Key"]}')
+                        
+                        # Add partition information as columns
+                        key_parts = obj['Key'].split('/')
+                        for part in key_parts:
+                            if '=' in part:
+                                partition_key, partition_value = part.split('=', 1)
+                                df[partition_key] = partition_value
+                        
+                        dataframes.append(df)
+                    except Exception as e:
+                        logger.warning(f"Error reading partition file {obj['Key']}: {e}")
+                        continue
+            
+            if not dataframes:
+                raise HTTPException(status_code=404, detail="No readable data found")
+            
+            # Combine all dataframes
+            combined_df = pd.concat(dataframes, ignore_index=True)
+            return combined_df
+            
+        except Exception as e:
+            logger.error(f"Partitioned dataset error: {e}")
+            raise HTTPException(status_code=500, detail="Error reading dataset")
     
     def _setup_routes(self):
         """Setup API routes with essential security."""
@@ -243,7 +360,7 @@ class SimpleS3ODataServer:
             return {
                 "service": "S3 OData Server",
                 "version": "1.0.0",
-                "endpoints": ["/files", "/data/{file_name}", "/health"]
+                "endpoints": ["/files", "/data/{file_name}", "/partitions/{dataset_name}", "/health"]
             }
         
         @self.app.get("/files")
@@ -287,8 +404,9 @@ class SimpleS3ODataServer:
             if not file_info:
                 raise HTTPException(status_code=404, detail="File not found")
             
-            # Read data
-            df = self._read_s3_file(file_info['key'])
+            # Read data (handle partitioned vs non-partitioned)
+            is_partitioned = file_info.get('is_partitioned', False)
+            df = self._read_s3_file(file_info['key'], is_partitioned=is_partitioned)
             
             # Apply pagination
             if skip:
@@ -300,6 +418,55 @@ class SimpleS3ODataServer:
                 "odata.metadata": "/$metadata",
                 "value": df.to_dict('records')
             }
+        
+        @self.app.get("/partitions/{dataset_name}")
+        async def get_partitions(
+            request: Request,
+            dataset_name: str,
+            username: str = Depends(self._verify_credentials)
+        ):
+            """Get partition information for a dataset."""
+            if not self.security_manager.validate_input(dataset_name, 'dataset_name'):
+                self.security_manager.log_security_event(
+                    "invalid_dataset_name",
+                    {"dataset_name": dataset_name},
+                    request
+                )
+                raise HTTPException(status_code=400, detail="Invalid dataset name")
+            
+            try:
+                response = self.s3_client.list_objects_v2(
+                    Bucket=self.s3_bucket,
+                    Prefix=f"{self.s3_prefix}{dataset_name}/" if self.s3_prefix else f"{dataset_name}/",
+                    MaxKeys=1000
+                )
+                
+                if 'Contents' not in response:
+                    raise HTTPException(status_code=404, detail="Dataset not found")
+                
+                partitions = {}
+                for obj in response['Contents']:
+                    if obj['Key'].endswith(('.csv', '.json', '.parquet')):
+                        key_parts = obj['Key'].split('/')
+                        for part in key_parts:
+                            if '=' in part:
+                                partition_key, partition_value = part.split('=', 1)
+                                if partition_key not in partitions:
+                                    partitions[partition_key] = set()
+                                partitions[partition_key].add(partition_value)
+                
+                result = {}
+                for key, values in partitions.items():
+                    result[key] = sorted(list(values))
+                
+                return {
+                    "dataset": dataset_name,
+                    "partitions": result,
+                    "total_partitions": sum(len(values) for values in partitions.values())
+                }
+            except Exception as e:
+                logger.error(f"Partitions error: {e}")
+                raise HTTPException(status_code=500, detail="Error getting partitions")
         
         @self.app.get("/health")
         async def health_check():
