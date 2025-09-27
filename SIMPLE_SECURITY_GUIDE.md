@@ -53,10 +53,10 @@ sudo systemctl start s3-odata-server
 sudo systemctl enable s3-odata-server
 ```
 
-### **5. Add SSL (Optional but Recommended)**
+### **5. Add HTTPS (Required for Tableau Public)**
 ```bash
-./setup_ssl.sh
-# Enter your domain name when prompted
+./setup_cloudflare.sh
+# Follow Cloudflare setup instructions
 ```
 
 ## 📋 **Minimal Configuration**
@@ -93,11 +93,11 @@ The server will:
 - **Add partition columns** (`year`, `month`, `day`) to your data
 - **Show partition info** via `/partitions/{dataset_name}` endpoint
 
-### **Available Endpoints**
+### **OData Endpoints (Tableau Public Compatible)**
 
-- `/files` - List all available datasets (partitioned and non-partitioned)
-- `/data/{file_name}` - Get data from a specific dataset
-- `/partitions/{dataset_name}` - Get partition information for a dataset
+- `/` - OData Service Document (lists available datasets)
+- `/$metadata` - OData Metadata Document (describes data structure)
+- `/{entity_set}` - Access data from specific dataset (e.g., `/weather_processed_partitioned`)
 - `/health` - Health check
 
 ## 🛡️ **Security Measures Explained**
@@ -141,16 +141,16 @@ curl -u username:password https://your-domain.com/files
 # Test invalid input (should be blocked)
 curl -u username:password https://your-domain.com/data/../../../etc/passwd
 
-# Test partitioned data
-curl -u username:password https://your-domain.com/files
-curl -u username:password https://your-domain.com/data/weather_processed_partitioned
-curl -u username:password https://your-domain.com/partitions/weather_processed
+# Test OData endpoints
+curl -u username:password https://your-domain.com/
+curl -u username:password https://your-domain.com/\$metadata
+curl -u username:password https://your-domain.com/weather_processed_partitioned
 ```
 
 ## ⚠️ **Security Checklist**
 
 - [ ] Strong password set (12+ characters)
-- [ ] SSL certificate configured
+- [ ] Cloudflare HTTPS configured
 - [ ] Firewall enabled (ports 22, 80, 443 only)
 - [ ] Service running as non-root user
 - [ ] Input validation working (test with malicious inputs)
@@ -167,7 +167,7 @@ journalctl -u s3-odata-server --no-pager
 
 ### **Can't Connect from Tableau**
 - Check firewall: `sudo ufw status`
-- Check SSL: `curl -I https://your-domain.com/health`
+- Check Cloudflare: `curl -I https://your-domain.com/health`
 - Check logs: `journalctl -u s3-odata-server | tail -20`
 
 ### **Authentication Issues**

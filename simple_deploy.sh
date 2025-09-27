@@ -29,9 +29,7 @@ sudo apt-get install -y \
     python3 \
     python3-pip \
     nginx \
-    ufw \
-    certbot \
-    python3-certbot-nginx
+    ufw
 
 # Install Python dependencies
 print_status "Installing Python packages..."
@@ -130,30 +128,10 @@ sudo nginx -t
 sudo systemctl restart nginx
 sudo systemctl enable nginx
 
-# Create SSL setup script
-print_status "Creating SSL setup script..."
-tee $APP_DIR/setup_ssl.sh > /dev/null <<EOF
-#!/bin/bash
-echo "🔐 Setting up SSL certificate..."
-
-read -p "Enter your domain name (e.g., your-domain.com): " DOMAIN
-
-if [ -z "\$DOMAIN" ]; then
-    echo "Error: Domain name is required"
-    exit 1
-fi
-
-# Update Nginx configuration
-sudo sed -i "s/server_name _;/server_name \$DOMAIN;/" /etc/nginx/sites-available/s3-odata-server
-
-# Get SSL certificate
-sudo certbot --nginx -d \$DOMAIN --non-interactive --agree-tos --email admin@\$DOMAIN
-
-echo "✅ SSL certificate setup complete!"
-echo "🔒 Your server is now accessible at: https://\$DOMAIN"
-EOF
-
-chmod +x $APP_DIR/setup_ssl.sh
+# Copy Cloudflare setup script
+print_status "Copying Cloudflare setup script..."
+cp setup_cloudflare.sh $APP_DIR/
+chmod +x $APP_DIR/setup_cloudflare.sh
 
 # Create simple monitoring script
 print_status "Creating monitoring script..."
@@ -185,16 +163,16 @@ echo "🔧 Next steps:"
 echo "1. Edit $APP_DIR/.env with your configuration"
 echo "2. Run: sudo systemctl start s3-odata-server"
 echo "3. Run: sudo systemctl enable s3-odata-server"
-echo "4. For SSL: Run $APP_DIR/setup_ssl.sh"
+echo "4. For HTTPS: Run $APP_DIR/setup_cloudflare.sh"
 echo ""
 echo "🔒 Essential security features enabled:"
 echo "- Basic firewall (UFW)"
 echo "- Input validation"
 echo "- IP-based lockout protection"
 echo "- CORS restrictions to Tableau Public only"
-echo "- SSL ready"
+echo "- Cloudflare HTTPS ready"
 echo ""
 print_warning "Remember to:"
 echo "1. Configure your .env file with actual values"
-echo "2. Set up SSL certificate for HTTPS"
+echo "2. Set up Cloudflare for HTTPS"
 echo "3. Test the server before going live"

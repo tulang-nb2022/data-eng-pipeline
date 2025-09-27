@@ -355,37 +355,88 @@ class SimpleS3ODataServer:
         """Setup API routes with essential security."""
         
         @self.app.get("/")
-        async def root():
-            """Root endpoint."""
-            return {
-                "service": "S3 OData Server",
-                "version": "1.0.0",
-                "endpoints": ["/files", "/data/{file_name}", "/partitions/{dataset_name}", "/health"]
-            }
-        
-        @self.app.get("/files")
-        async def list_files(request: Request, username: str = Depends(self._verify_credentials)):
-            """List available files."""
+        async def service_document(request: Request, username: str = Depends(self._verify_credentials)):
+            """OData Service Document - required by Tableau Public."""
             files = self._get_s3_files()
-            return {"files": files}
+            
+            # Create OData service document
+            service_doc = {
+                "@odata.context": "/$metadata",
+                "value": []
+            }
+            
+            for file_info in files:
+                entity_set = {
+                    "name": file_info['name'].replace('.', '_').replace('-', '_'),
+                    "kind": "EntitySet",
+                    "url": file_info['name']
+                }
+                service_doc["value"].append(entity_set)
+            
+            return service_doc
         
-        @self.app.get("/data/{file_name}")
-        async def get_data(
+        @self.app.get("/$metadata")
+        async def metadata(request: Request, username: str = Depends(self._verify_credentials)):
+            """OData Metadata Document - required by Tableau Public."""
+            files = self._get_s3_files()
+            
+            # Create OData metadata XML
+            metadata_xml = '''<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">'''
+            
+            for file_info in files:
+                entity_name = file_info['name'].replace('.', '_').replace('-', '_')
+                metadata_xml += f'''
+      <EntityType Name="{entity_name}">
+        <Key>
+          <PropertyRef Name="id" />
+        </Key>
+        <Property Name="id" Type="Edm.Int32" Nullable="false" />
+        <Property Name="data" Type="Edm.String" />
+      </EntityType>'''
+            
+            metadata_xml += '''
+      <EntityContainer Name="Container">
+        <EntitySet Name="Data" EntityType="Default.Data" />'''
+            
+            for file_info in files:
+                entity_name = file_info['name'].replace('.', '_').replace('-', '_')
+                metadata_xml += f'''
+        <EntitySet Name="{entity_name}" EntityType="Default.{entity_name}" />'''
+            
+            metadata_xml += '''
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>'''
+            
+            return Response(content=metadata_xml, media_type="application/xml")
+        
+        @self.app.get("/{entity_set}")
+        async def get_entity_set(
             request: Request,
-            file_name: str,
+            entity_set: str,
             username: str = Depends(self._verify_credentials),
             top: Optional[int] = None,
-            skip: Optional[int] = None
+            skip: Optional[int] = None,
+            filter: Optional[str] = None,
+            select: Optional[str] = None,
+            orderby: Optional[str] = None
         ):
-            """Get data from S3 files with security validation."""
+            """OData EntitySet endpoint - main data access for Tableau Public."""
+            # Convert entity set name back to file name
+            file_name = entity_set.replace('_', '.')
+            
             # Validate file name
             if not self.security_manager.validate_input(file_name, 'file_name'):
                 self.security_manager.log_security_event(
                     "invalid_file_name",
-                    {"file_name": file_name},
+                    {"file_name": file_name, "entity_set": entity_set},
                     request
                 )
-                raise HTTPException(status_code=400, detail="Invalid file name")
+                raise HTTPException(status_code=400, detail="Invalid entity set name")
             
             # Validate pagination parameters
             if top and (top < 1 or top > 10000):
@@ -402,11 +453,19 @@ class SimpleS3ODataServer:
                     break
             
             if not file_info:
-                raise HTTPException(status_code=404, detail="File not found")
+                raise HTTPException(status_code=404, detail="Entity set not found")
             
             # Read data (handle partitioned vs non-partitioned)
             is_partitioned = file_info.get('is_partitioned', False)
             df = self._read_s3_file(file_info['key'], is_partitioned=is_partitioned)
+            
+            # Apply OData query options
+            if filter:
+                df = self._apply_odata_filter(df, filter)
+            if select:
+                df = self._apply_odata_select(df, select)
+            if orderby:
+                df = self._apply_odata_orderby(df, orderby)
             
             # Apply pagination
             if skip:
@@ -414,64 +473,55 @@ class SimpleS3ODataServer:
             if top:
                 df = df.head(top)
             
+            # Convert to OData format
             return {
-                "odata.metadata": "/$metadata",
+                "@odata.context": "/$metadata",
                 "value": df.to_dict('records')
             }
-        
-        @self.app.get("/partitions/{dataset_name}")
-        async def get_partitions(
-            request: Request,
-            dataset_name: str,
-            username: str = Depends(self._verify_credentials)
-        ):
-            """Get partition information for a dataset."""
-            if not self.security_manager.validate_input(dataset_name, 'dataset_name'):
-                self.security_manager.log_security_event(
-                    "invalid_dataset_name",
-                    {"dataset_name": dataset_name},
-                    request
-                )
-                raise HTTPException(status_code=400, detail="Invalid dataset name")
-            
-            try:
-                response = self.s3_client.list_objects_v2(
-                    Bucket=self.s3_bucket,
-                    Prefix=f"{self.s3_prefix}{dataset_name}/" if self.s3_prefix else f"{dataset_name}/",
-                    MaxKeys=1000
-                )
-                
-                if 'Contents' not in response:
-                    raise HTTPException(status_code=404, detail="Dataset not found")
-                
-                partitions = {}
-                for obj in response['Contents']:
-                    if obj['Key'].endswith(('.csv', '.json', '.parquet')):
-                        key_parts = obj['Key'].split('/')
-                        for part in key_parts:
-                            if '=' in part:
-                                partition_key, partition_value = part.split('=', 1)
-                                if partition_key not in partitions:
-                                    partitions[partition_key] = set()
-                                partitions[partition_key].add(partition_value)
-                
-                result = {}
-                for key, values in partitions.items():
-                    result[key] = sorted(list(values))
-                
-                return {
-                    "dataset": dataset_name,
-                    "partitions": result,
-                    "total_partitions": sum(len(values) for values in partitions.values())
-                }
-            except Exception as e:
-                logger.error(f"Partitions error: {e}")
-                raise HTTPException(status_code=500, detail="Error getting partitions")
         
         @self.app.get("/health")
         async def health_check():
             """Health check endpoint."""
             return {"status": "healthy", "service": "S3 OData Server"}
+    
+    def _apply_odata_filter(self, df: pd.DataFrame, filter_str: str) -> pd.DataFrame:
+        """Apply OData $filter query option."""
+        try:
+            # Basic equality filter: column eq 'value'
+            if ' eq ' in filter_str:
+                parts = filter_str.split(' eq ')
+                if len(parts) == 2:
+                    column = parts[0].strip()
+                    value = parts[1].strip().strip("'\"")
+                    if column in df.columns:
+                        return df[df[column].astype(str) == value]
+        except Exception as e:
+            logger.warning(f"Filter error: {e}")
+        return df
+    
+    def _apply_odata_select(self, df: pd.DataFrame, select_str: str) -> pd.DataFrame:
+        """Apply OData $select query option."""
+        try:
+            columns = [col.strip() for col in select_str.split(',')]
+            available_columns = [col for col in columns if col in df.columns]
+            if available_columns:
+                return df[available_columns]
+        except Exception as e:
+            logger.warning(f"Select error: {e}")
+        return df
+    
+    def _apply_odata_orderby(self, df: pd.DataFrame, orderby_str: str) -> pd.DataFrame:
+        """Apply OData $orderby query option."""
+        try:
+            parts = orderby_str.split()
+            if len(parts) >= 1:
+                column = parts[0]
+                ascending = len(parts) == 1 or parts[1].lower() != 'desc'
+                if column in df.columns:
+                    return df.sort_values(by=column, ascending=ascending)
+        except Exception as e:
+            logger.warning(f"Orderby error: {e}")
+        return df
     
     def run(self, host: str = "localhost", port: int = 8000):
         """Run the server."""
