@@ -14,7 +14,7 @@ from urllib.parse import unquote
 
 import boto3
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Depends, status, Request
+from fastapi import FastAPI, HTTPException, Depends, status, Request, Query
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -462,11 +462,11 @@ class SimpleS3ODataServer:
             request: Request,
             entity_set: str,
             username: str = Depends(self._verify_credentials),
-            $top: Optional[int] = None,
-            $skip: Optional[int] = None,
-            $filter: Optional[str] = None,
-            $select: Optional[str] = None,
-            $orderby: Optional[str] = None
+            top: Optional[int] = Query(None, alias="$top"),
+            skip: Optional[int] = Query(None, alias="$skip"),
+            filter: Optional[str] = Query(None, alias="$filter"),
+            select: Optional[str] = Query(None, alias="$select"),
+            orderby: Optional[str] = Query(None, alias="$orderby")
         ):
             """OData EntitySet endpoint - main data access for Tableau Public."""
             # Convert entity set name back to file name
@@ -482,9 +482,9 @@ class SimpleS3ODataServer:
                 raise HTTPException(status_code=400, detail="Invalid entity set name")
             
             # Validate pagination parameters
-            if $top and ($top < 1 or $top > 10000):
+            if top and (top < 1 or top > 10000):
                 raise HTTPException(status_code=400, detail="Invalid $top parameter")
-            if $skip and ($skip < 0 or $skip > 100000):
+            if skip and (skip < 0 or skip > 100000):
                 raise HTTPException(status_code=400, detail="Invalid $skip parameter")
             
             # Find the file
@@ -506,18 +506,18 @@ class SimpleS3ODataServer:
             original_count = len(df)
             
             # Apply OData query options
-            if $filter:
-                df = self._apply_odata_filter(df, $filter)
-            if $select:
-                df = self._apply_odata_select(df, $select)
-            if $orderby:
-                df = self._apply_odata_orderby(df, $orderby)
+            if filter:
+                df = self._apply_odata_filter(df, filter)
+            if select:
+                df = self._apply_odata_select(df, select)
+            if orderby:
+                df = self._apply_odata_orderby(df, orderby)
             
             # Apply pagination
-            if $skip:
-                df = df.iloc[$skip:]
-            if $top:
-                df = df.head($top)
+            if skip:
+                df = df.iloc[skip:]
+            if top:
+                df = df.head(top)
             
             # Add row index for OData key
             df = df.reset_index(drop=True)
