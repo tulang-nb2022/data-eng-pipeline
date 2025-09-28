@@ -186,46 +186,34 @@ class SimpleS3ODataServer:
         return credentials.username
     
     def _get_s3_files(self) -> List[Dict[str, Any]]:
-        """Get list of files and datasets from S3 bucket with security validation."""
+        """Get list of parquet files from gold/weather/processed path only."""
         try:
+            # Only look in the specific weather data path
+            weather_prefix = "gold/weather/processed/"
+            if self.s3_prefix:
+                weather_prefix = f"{self.s3_prefix}{weather_prefix}"
+            
             response = self.s3_client.list_objects_v2(
                 Bucket=self.s3_bucket,
-                Prefix=self.s3_prefix,
-                MaxKeys=1000  # Increase for partitioned data
+                Prefix=weather_prefix,
+                MaxKeys=1000
             )
             
             files = []
-            datasets = {}  # Group files by dataset name
             
             if 'Contents' in response:
                 for obj in response['Contents']:
-                    if obj['Key'].endswith(('.csv', '.json', '.parquet')):
-                        # Extract dataset name and check for partitioning
-                        key_parts = obj['Key'].split('/')
-                        filename = key_parts[-1]
+                    # Only include parquet files
+                    if obj['Key'].endswith('.parquet'):
+                        # Extract filename
+                        filename = obj['Key'].split('/')[-1]
                         
                         # Validate filename for security
                         if not self.security_manager.validate_input(filename, 'file_name'):
                             continue
                         
-                        # Check if this is partitioned data (contains = in path)
-                        is_partitioned = any('=' in part for part in key_parts)
-                        
-                        if is_partitioned:
-                            # For partitioned data, use the parent directory as dataset name
-                            # e.g., gold/weather/processed -> weather_processed
-                            dataset_parts = []
-                            for part in key_parts:
-                                if '=' not in part and part not in ['', 'gold', 'processed']:
-                                    dataset_parts.append(part)
-                            dataset_name = '_'.join(dataset_parts) if dataset_parts else 'partitioned_data'
-                        else:
-                            # For non-partitioned data, use filename without extension
-                            dataset_name = filename.split('.')[0]
-                        
-                        # Validate dataset name
-                        if not self.security_manager.validate_input(dataset_name, 'dataset_name'):
-                            continue
+                        # Create a simple dataset name
+                        dataset_name = "weather_data"
                         
                         file_info = {
                             'name': filename,
@@ -233,47 +221,10 @@ class SimpleS3ODataServer:
                             'size': obj['Size'],
                             'last_modified': obj['LastModified'].isoformat(),
                             'dataset_name': dataset_name,
-                            'is_partitioned': is_partitioned
+                            'is_partitioned': True  # All weather data is partitioned
                         }
                         
-                        # Group by dataset
-                        if dataset_name not in datasets:
-                            datasets[dataset_name] = {
-                                'name': dataset_name,
-                                'files': [],
-                                'total_size': 0,
-                                'is_partitioned': is_partitioned,
-                                'partition_info': {}
-                            }
-                        
-                        datasets[dataset_name]['files'].append(file_info)
-                        datasets[dataset_name]['total_size'] += obj['Size']
-                        
-                        # Extract partition information
-                        if is_partitioned:
-                            for part in key_parts:
-                                if '=' in part:
-                                    partition_key, partition_value = part.split('=', 1)
-                                    if partition_key not in datasets[dataset_name]['partition_info']:
-                                        datasets[dataset_name]['partition_info'][partition_key] = set()
-                                    datasets[dataset_name]['partition_info'][partition_key].add(partition_value)
-            
-            # Convert datasets to files list
-            for dataset_name, dataset_info in datasets.items():
-                if dataset_info['is_partitioned']:
-                    # Create a virtual file for the partitioned dataset
-                    files.append({
-                        'name': f"{dataset_name}_partitioned",
-                        'key': dataset_name,  # Use dataset name as key for partitioned data
-                        'size': dataset_info['total_size'],
-                        'last_modified': max([f['last_modified'] for f in dataset_info['files']]),
-                        'is_partitioned': True,
-                        'partition_count': len(dataset_info['files']),
-                        'partition_info': {k: sorted(list(v)) for k, v in dataset_info['partition_info'].items()}
-                    })
-                else:
-                    # Add individual files
-                    files.extend(dataset_info['files'])
+                        files.append(file_info)
             
             return files
         except Exception as e:
@@ -307,32 +258,29 @@ class SimpleS3ODataServer:
             logger.error(f"S3 read error: {e}")
             raise HTTPException(status_code=500, detail="Error reading data")
     
-    def _read_partitioned_dataset(self, dataset_name: str) -> pd.DataFrame:
-        """Read all files in a partitioned dataset and combine them."""
+    def _read_partitioned_dataset(self, dataset_path: str) -> pd.DataFrame:
+        """Read all parquet files in the weather dataset and combine them."""
         try:
-            # List all files in the partitioned dataset
+            # List all parquet files in the weather dataset
+            weather_prefix = dataset_path + "/"
+            if self.s3_prefix:
+                weather_prefix = f"{self.s3_prefix}{weather_prefix}"
+            
             response = self.s3_client.list_objects_v2(
                 Bucket=self.s3_bucket,
-                Prefix=f"{self.s3_prefix}{dataset_name}/" if self.s3_prefix else f"{dataset_name}/",
+                Prefix=weather_prefix,
                 MaxKeys=1000  # Limit for security
             )
             
             if 'Contents' not in response:
-                raise HTTPException(status_code=404, detail="Dataset not found")
+                raise HTTPException(status_code=404, detail="Weather dataset not found")
             
             dataframes = []
             for obj in response['Contents']:
-                if obj['Key'].endswith(('.csv', '.json', '.parquet')):
-                    file_ext = obj['Key'].split('.')[-1].lower()
-                    
+                if obj['Key'].endswith('.parquet'):
                     try:
-                        # Read file with limits for security
-                        if file_ext == 'csv':
-                            df = pd.read_csv(f's3://{self.s3_bucket}/{obj["Key"]}', nrows=10000)
-                        elif file_ext == 'json':
-                            df = pd.read_json(f's3://{self.s3_bucket}/{obj["Key"]}')
-                        elif file_ext == 'parquet':
-                            df = pd.read_parquet(f's3://{self.s3_bucket}/{obj["Key"]}')
+                        # Read parquet file with limits for security
+                        df = pd.read_parquet(f's3://{self.s3_bucket}/{obj["Key"]}')
                         
                         # Add partition information as columns
                         key_parts = obj['Key'].split('/')
@@ -347,15 +295,15 @@ class SimpleS3ODataServer:
                         continue
             
             if not dataframes:
-                raise HTTPException(status_code=404, detail="No readable data found")
+                raise HTTPException(status_code=404, detail="No readable weather data found")
             
             # Combine all dataframes
             combined_df = pd.concat(dataframes, ignore_index=True)
             return combined_df
             
         except Exception as e:
-            logger.error(f"Partitioned dataset error: {e}")
-            raise HTTPException(status_code=500, detail="Error reading dataset")
+            logger.error(f"Weather dataset error: {e}")
+            raise HTTPException(status_code=500, detail="Error reading weather data")
     
     def _setup_routes(self):
         """Setup API routes with essential security."""
@@ -374,9 +322,9 @@ class SimpleS3ODataServer:
             
             for file_info in files:
                 entity_set = {
-                    "name": file_info['name'].replace('.', '_').replace('-', '_'),
+                    "name": "weather_data",
                     "kind": "EntitySet",
-                    "url": file_info['name']
+                    "url": "weather_data"
                 }
                 service_doc["value"].append(entity_set)
             
@@ -395,58 +343,28 @@ class SimpleS3ODataServer:
     <Schema Namespace="S3DataService" xmlns="http://docs.oasis-open.org/odata/ns/edm">
       <EntityContainer Name="S3DataContainer">'''
             
-            # Add entity sets to container
-            for file_info in files:
-                entity_name = file_info['name'].replace('.', '_').replace('-', '_')
-                metadata_xml += f'''
-        <EntitySet Name="{entity_name}" EntityType="S3DataService.{entity_name}" />'''
+            # Add entity sets to container (single weather_data entity)
+            metadata_xml += '''
+        <EntitySet Name="weather_data" EntityType="S3DataService.WeatherData" />'''
             
             metadata_xml += '''
       </EntityContainer>'''
             
-            # Add entity types with proper column definitions
-            for file_info in files:
-                entity_name = file_info['name'].replace('.', '_').replace('-', '_')
-                
-                # Try to get sample data to determine column types
-                try:
-                    sample_df = self._read_s3_file(file_info['key'], file_info.get('is_partitioned', False))
-                    if not sample_df.empty:
-                        metadata_xml += f'''
-      <EntityType Name="{entity_name}">
+            # Add single generic weather data entity type
+            metadata_xml += '''
+      <EntityType Name="WeatherData">
         <Key>
-          <PropertyRef Name="RowIndex" />
+          <PropertyRef Name="id" />
         </Key>
-        <Property Name="RowIndex" Type="Edm.Int32" Nullable="false" />'''
-                        
-                        # Add properties for each column
-                        for col in sample_df.columns:
-                            col_type = self._get_odata_type(sample_df[col].dtype)
-                            metadata_xml += f'''
-        <Property Name="{col}" Type="{col_type}" />'''
-                        
-                        metadata_xml += '''
-      </EntityType>'''
-                    else:
-                        # Fallback for empty datasets
-                        metadata_xml += f'''
-      <EntityType Name="{entity_name}">
-        <Key>
-          <PropertyRef Name="RowIndex" />
-        </Key>
-        <Property Name="RowIndex" Type="Edm.Int32" Nullable="false" />
-        <Property Name="data" Type="Edm.String" />
-      </EntityType>'''
-                except Exception as e:
-                    logger.warning(f"Error getting sample data for {entity_name}: {e}")
-                    # Fallback entity type
-                    metadata_xml += f'''
-      <EntityType Name="{entity_name}">
-        <Key>
-          <PropertyRef Name="RowIndex" />
-        </Key>
-        <Property Name="RowIndex" Type="Edm.Int32" Nullable="false" />
-        <Property Name="data" Type="Edm.String" />
+        <Property Name="id" Type="Edm.Int32" Nullable="false" />
+        <Property Name="timestamp" Type="Edm.DateTimeOffset" />
+        <Property Name="temperature" Type="Edm.Double" />
+        <Property Name="humidity" Type="Edm.Double" />
+        <Property Name="pressure" Type="Edm.Double" />
+        <Property Name="wind_speed" Type="Edm.Double" />
+        <Property Name="wind_direction" Type="Edm.Double" />
+        <Property Name="precipitation" Type="Edm.Double" />
+        <Property Name="location" Type="Edm.String" />
       </EntityType>'''
             
             metadata_xml += '''
@@ -457,10 +375,9 @@ class SimpleS3ODataServer:
             response = Response(content=metadata_xml, media_type="application/xml")
             return self._add_odata_headers(response, "application/xml")
         
-        @self.app.get("/{entity_set}")
-        async def get_entity_set(
+        @self.app.get("/weather_data")
+        async def get_weather_data(
             request: Request,
-            entity_set: str,
             username: str = Depends(self._verify_credentials),
             top: Optional[int] = Query(None, alias="$top"),
             skip: Optional[int] = Query(None, alias="$skip"),
@@ -468,39 +385,15 @@ class SimpleS3ODataServer:
             select: Optional[str] = Query(None, alias="$select"),
             orderby: Optional[str] = Query(None, alias="$orderby")
         ):
-            """OData EntitySet endpoint - main data access for Tableau Public."""
-            # Convert entity set name back to file name
-            file_name = entity_set.replace('_', '.')
-            
-            # Validate file name
-            if not self.security_manager.validate_input(file_name, 'file_name'):
-                self.security_manager.log_security_event(
-                    "invalid_file_name",
-                    {"file_name": file_name, "entity_set": entity_set},
-                    request
-                )
-                raise HTTPException(status_code=400, detail="Invalid entity set name")
-            
+            """OData EntitySet endpoint - weather data access for Tableau Public."""
             # Validate pagination parameters
             if top and (top < 1 or top > 10000):
                 raise HTTPException(status_code=400, detail="Invalid $top parameter")
             if skip and (skip < 0 or skip > 100000):
                 raise HTTPException(status_code=400, detail="Invalid $skip parameter")
             
-            # Find the file
-            files = self._get_s3_files()
-            file_info = None
-            for f in files:
-                if f['name'] == file_name:
-                    file_info = f
-                    break
-            
-            if not file_info:
-                raise HTTPException(status_code=404, detail="Entity set not found")
-            
-            # Read data (handle partitioned vs non-partitioned)
-            is_partitioned = file_info.get('is_partitioned', False)
-            df = self._read_s3_file(file_info['key'], is_partitioned=is_partitioned)
+            # Read all weather data (partitioned)
+            df = self._read_partitioned_dataset("gold/weather/processed")
             
             # Store original count before filtering
             original_count = len(df)
@@ -519,9 +412,38 @@ class SimpleS3ODataServer:
             if top:
                 df = df.head(top)
             
-            # Add row index for OData key
+            # Add ID field for OData compliance and sanitize column names
             df = df.reset_index(drop=True)
-            df['RowIndex'] = range(len(df))
+            df['id'] = range(len(df))
+            
+            # Rename columns to match metadata (sanitize for security)
+            column_mapping = {}
+            for col in df.columns:
+                if col.lower() in ['timestamp', 'date', 'time', 'datetime']:
+                    column_mapping[col] = 'timestamp'
+                elif col.lower() in ['temp', 'temperature', 'temp_c', 'temp_f']:
+                    column_mapping[col] = 'temperature'
+                elif col.lower() in ['humidity', 'hum', 'relative_humidity']:
+                    column_mapping[col] = 'humidity'
+                elif col.lower() in ['pressure', 'atm_pressure', 'barometric_pressure']:
+                    column_mapping[col] = 'pressure'
+                elif col.lower() in ['wind_speed', 'windspeed', 'wind_spd']:
+                    column_mapping[col] = 'wind_speed'
+                elif col.lower() in ['wind_direction', 'winddir', 'wind_dir']:
+                    column_mapping[col] = 'wind_direction'
+                elif col.lower() in ['precipitation', 'precip', 'rain', 'rainfall']:
+                    column_mapping[col] = 'precipitation'
+                elif col.lower() in ['location', 'city', 'station', 'place']:
+                    column_mapping[col] = 'location'
+            
+            # Apply column mapping
+            df = df.rename(columns=column_mapping)
+            
+            # Only keep the columns defined in metadata
+            allowed_columns = ['id', 'timestamp', 'temperature', 'humidity', 'pressure', 
+                             'wind_speed', 'wind_direction', 'precipitation', 'location']
+            existing_columns = [col for col in allowed_columns if col in df.columns]
+            df = df[existing_columns]
             
             # Convert to OData format
             odata_response = {
