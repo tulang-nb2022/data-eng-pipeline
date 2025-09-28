@@ -16,7 +16,7 @@ import boto3
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from passlib.context import CryptContext
 import uvicorn
@@ -143,6 +143,12 @@ class SimpleS3ODataServer:
             allow_methods=["GET"],
             allow_headers=["*"],
         )
+    
+    def _add_odata_headers(self, response: Response, content_type: str = "application/json") -> Response:
+        """Add OData 4.0 standard headers to responses."""
+        response.headers["OData-Version"] = "4.0"
+        response.headers["Content-Type"] = f"{content_type}; odata.metadata=minimal"
+        return response
     
     def _verify_credentials(self, credentials: HTTPBasicCredentials = Depends(security), request: Request = None):
         """Verify credentials with IP-based lockout protection."""
@@ -362,6 +368,7 @@ class SimpleS3ODataServer:
             # Create OData service document
             service_doc = {
                 "@odata.context": "/$metadata",
+                "@odata.count": len(files),
                 "value": []
             }
             
@@ -373,57 +380,93 @@ class SimpleS3ODataServer:
                 }
                 service_doc["value"].append(entity_set)
             
-            return service_doc
+            response = JSONResponse(content=service_doc)
+            return self._add_odata_headers(response)
         
         @self.app.get("/$metadata")
         async def metadata(request: Request, username: str = Depends(self._verify_credentials)):
             """OData Metadata Document - required by Tableau Public."""
             files = self._get_s3_files()
             
-            # Create OData metadata XML
+            # Create OData metadata XML with proper namespace
             metadata_xml = '''<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
   <edmx:DataServices>
-    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">'''
+    <Schema Namespace="S3DataService" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityContainer Name="S3DataContainer">'''
             
+            # Add entity sets to container
             for file_info in files:
                 entity_name = file_info['name'].replace('.', '_').replace('-', '_')
                 metadata_xml += f'''
+        <EntitySet Name="{entity_name}" EntityType="S3DataService.{entity_name}" />'''
+            
+            metadata_xml += '''
+      </EntityContainer>'''
+            
+            # Add entity types with proper column definitions
+            for file_info in files:
+                entity_name = file_info['name'].replace('.', '_').replace('-', '_')
+                
+                # Try to get sample data to determine column types
+                try:
+                    sample_df = self._read_s3_file(file_info['key'], file_info.get('is_partitioned', False))
+                    if not sample_df.empty:
+                        metadata_xml += f'''
       <EntityType Name="{entity_name}">
         <Key>
-          <PropertyRef Name="id" />
+          <PropertyRef Name="RowIndex" />
         </Key>
-        <Property Name="id" Type="Edm.Int32" Nullable="false" />
+        <Property Name="RowIndex" Type="Edm.Int32" Nullable="false" />'''
+                        
+                        # Add properties for each column
+                        for col in sample_df.columns:
+                            col_type = self._get_odata_type(sample_df[col].dtype)
+                            metadata_xml += f'''
+        <Property Name="{col}" Type="{col_type}" />'''
+                        
+                        metadata_xml += '''
+      </EntityType>'''
+                    else:
+                        # Fallback for empty datasets
+                        metadata_xml += f'''
+      <EntityType Name="{entity_name}">
+        <Key>
+          <PropertyRef Name="RowIndex" />
+        </Key>
+        <Property Name="RowIndex" Type="Edm.Int32" Nullable="false" />
+        <Property Name="data" Type="Edm.String" />
+      </EntityType>'''
+                except Exception as e:
+                    logger.warning(f"Error getting sample data for {entity_name}: {e}")
+                    # Fallback entity type
+                    metadata_xml += f'''
+      <EntityType Name="{entity_name}">
+        <Key>
+          <PropertyRef Name="RowIndex" />
+        </Key>
+        <Property Name="RowIndex" Type="Edm.Int32" Nullable="false" />
         <Property Name="data" Type="Edm.String" />
       </EntityType>'''
             
             metadata_xml += '''
-      <EntityContainer Name="Container">
-        <EntitySet Name="Data" EntityType="Default.Data" />'''
-            
-            for file_info in files:
-                entity_name = file_info['name'].replace('.', '_').replace('-', '_')
-                metadata_xml += f'''
-        <EntitySet Name="{entity_name}" EntityType="Default.{entity_name}" />'''
-            
-            metadata_xml += '''
-      </EntityContainer>
     </Schema>
   </edmx:DataServices>
 </edmx:Edmx>'''
             
-            return Response(content=metadata_xml, media_type="application/xml")
+            response = Response(content=metadata_xml, media_type="application/xml")
+            return self._add_odata_headers(response, "application/xml")
         
         @self.app.get("/{entity_set}")
         async def get_entity_set(
             request: Request,
             entity_set: str,
             username: str = Depends(self._verify_credentials),
-            top: Optional[int] = None,
-            skip: Optional[int] = None,
-            filter: Optional[str] = None,
-            select: Optional[str] = None,
-            orderby: Optional[str] = None
+            $top: Optional[int] = None,
+            $skip: Optional[int] = None,
+            $filter: Optional[str] = None,
+            $select: Optional[str] = None,
+            $orderby: Optional[str] = None
         ):
             """OData EntitySet endpoint - main data access for Tableau Public."""
             # Convert entity set name back to file name
@@ -439,10 +482,10 @@ class SimpleS3ODataServer:
                 raise HTTPException(status_code=400, detail="Invalid entity set name")
             
             # Validate pagination parameters
-            if top and (top < 1 or top > 10000):
-                raise HTTPException(status_code=400, detail="Invalid top parameter")
-            if skip and (skip < 0 or skip > 100000):
-                raise HTTPException(status_code=400, detail="Invalid skip parameter")
+            if $top and ($top < 1 or $top > 10000):
+                raise HTTPException(status_code=400, detail="Invalid $top parameter")
+            if $skip and ($skip < 0 or $skip > 100000):
+                raise HTTPException(status_code=400, detail="Invalid $skip parameter")
             
             # Find the file
             files = self._get_s3_files()
@@ -459,35 +502,47 @@ class SimpleS3ODataServer:
             is_partitioned = file_info.get('is_partitioned', False)
             df = self._read_s3_file(file_info['key'], is_partitioned=is_partitioned)
             
+            # Store original count before filtering
+            original_count = len(df)
+            
             # Apply OData query options
-            if filter:
-                df = self._apply_odata_filter(df, filter)
-            if select:
-                df = self._apply_odata_select(df, select)
-            if orderby:
-                df = self._apply_odata_orderby(df, orderby)
+            if $filter:
+                df = self._apply_odata_filter(df, $filter)
+            if $select:
+                df = self._apply_odata_select(df, $select)
+            if $orderby:
+                df = self._apply_odata_orderby(df, $orderby)
             
             # Apply pagination
-            if skip:
-                df = df.iloc[skip:]
-            if top:
-                df = df.head(top)
+            if $skip:
+                df = df.iloc[$skip:]
+            if $top:
+                df = df.head($top)
+            
+            # Add row index for OData key
+            df = df.reset_index(drop=True)
+            df['RowIndex'] = range(len(df))
             
             # Convert to OData format
-            return {
+            odata_response = {
                 "@odata.context": "/$metadata",
+                "@odata.count": original_count,
                 "value": df.to_dict('records')
             }
+            
+            response = JSONResponse(content=odata_response)
+            return self._add_odata_headers(response)
         
         @self.app.get("/health")
         async def health_check():
             """Health check endpoint."""
-            return {"status": "healthy", "service": "S3 OData Server"}
+            response = JSONResponse(content={"status": "healthy", "service": "S3 OData Server"})
+            return self._add_odata_headers(response)
     
     def _apply_odata_filter(self, df: pd.DataFrame, filter_str: str) -> pd.DataFrame:
-        """Apply OData $filter query option."""
+        """Apply OData $filter query option with enhanced support."""
         try:
-            # Basic equality filter: column eq 'value'
+            # Handle basic equality filters: column eq 'value'
             if ' eq ' in filter_str:
                 parts = filter_str.split(' eq ')
                 if len(parts) == 2:
@@ -495,6 +550,54 @@ class SimpleS3ODataServer:
                     value = parts[1].strip().strip("'\"")
                     if column in df.columns:
                         return df[df[column].astype(str) == value]
+            
+            # Handle inequality filters: column ne 'value'
+            elif ' ne ' in filter_str:
+                parts = filter_str.split(' ne ')
+                if len(parts) == 2:
+                    column = parts[0].strip()
+                    value = parts[1].strip().strip("'\"")
+                    if column in df.columns:
+                        return df[df[column].astype(str) != value]
+            
+            # Handle greater than filters: column gt value
+            elif ' gt ' in filter_str:
+                parts = filter_str.split(' gt ')
+                if len(parts) == 2:
+                    column = parts[0].strip()
+                    value = parts[1].strip()
+                    if column in df.columns:
+                        try:
+                            numeric_value = float(value)
+                            return df[df[column] > numeric_value]
+                        except ValueError:
+                            pass
+            
+            # Handle less than filters: column lt value
+            elif ' lt ' in filter_str:
+                parts = filter_str.split(' lt ')
+                if len(parts) == 2:
+                    column = parts[0].strip()
+                    value = parts[1].strip()
+                    if column in df.columns:
+                        try:
+                            numeric_value = float(value)
+                            return df[df[column] < numeric_value]
+                        except ValueError:
+                            pass
+            
+            # Handle contains filters: contains(column, 'value')
+            elif 'contains(' in filter_str and ')' in filter_str:
+                start = filter_str.find('contains(') + 9
+                end = filter_str.find(')')
+                inner = filter_str[start:end]
+                if ',' in inner:
+                    parts = inner.split(',')
+                    if len(parts) == 2:
+                        column = parts[0].strip()
+                        value = parts[1].strip().strip("'\"")
+                        if column in df.columns:
+                            return df[df[column].astype(str).str.contains(value, case=False, na=False)]
         except Exception as e:
             logger.warning(f"Filter error: {e}")
         return df
@@ -511,17 +614,47 @@ class SimpleS3ODataServer:
         return df
     
     def _apply_odata_orderby(self, df: pd.DataFrame, orderby_str: str) -> pd.DataFrame:
-        """Apply OData $orderby query option."""
+        """Apply OData $orderby query option with enhanced support."""
         try:
-            parts = orderby_str.split()
-            if len(parts) >= 1:
-                column = parts[0]
-                ascending = len(parts) == 1 or parts[1].lower() != 'desc'
-                if column in df.columns:
-                    return df.sort_values(by=column, ascending=ascending)
+            # Handle multiple orderby clauses separated by commas
+            orderby_clauses = [clause.strip() for clause in orderby_str.split(',')]
+            
+            sort_columns = []
+            sort_orders = []
+            
+            for clause in orderby_clauses:
+                parts = clause.split()
+                if len(parts) >= 1:
+                    column = parts[0]
+                    ascending = len(parts) == 1 or parts[1].lower() != 'desc'
+                    if column in df.columns:
+                        sort_columns.append(column)
+                        sort_orders.append(ascending)
+            
+            if sort_columns:
+                return df.sort_values(by=sort_columns, ascending=sort_orders)
         except Exception as e:
             logger.warning(f"Orderby error: {e}")
         return df
+    
+    def _get_odata_type(self, pandas_dtype) -> str:
+        """Convert pandas dtype to OData EDM type."""
+        dtype_str = str(pandas_dtype)
+        
+        if 'int' in dtype_str:
+            return 'Edm.Int32'
+        elif 'float' in dtype_str:
+            return 'Edm.Double'
+        elif 'bool' in dtype_str:
+            return 'Edm.Boolean'
+        elif 'datetime' in dtype_str:
+            return 'Edm.DateTimeOffset'
+        elif 'date' in dtype_str:
+            return 'Edm.Date'
+        elif 'time' in dtype_str:
+            return 'Edm.TimeOfDay'
+        else:
+            return 'Edm.String'
     
     def run(self, host: str = "localhost", port: int = 8000):
         """Run the server."""
