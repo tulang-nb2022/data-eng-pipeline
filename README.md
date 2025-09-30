@@ -1,42 +1,133 @@
-# Cursor Data Engineering Project
+# Weather Data Engineering Pipeline
 
-A comprehensive data engineering pipeline for weather data processing, validation, and analytics using modern cloud technologies.
+A comprehensive real-time weather data engineering pipeline that crawls NOAA weather data for specific locations and serves it to interactive dashboards via a modern data lakehouse architecture.
 
 ## Project Overview
 
-This project implements a complete data engineering pipeline that:
-- Extracts weather data from NOAA APIs
-- Processes and validates data using Great Expectations
-- Stores data in S3 with partitioning
-- Provides analytics through dbt transformations
-- Serves data via OData API for Tableau Public
+This project implements a complete **real-time weather data pipeline** that:
+- **Crawls** weather data from NOAA APIs for specified locations
+- **Streams** data through Kafka for real-time processing
+- **Processes** data through Bronze → Silver → Gold layers using Spark and dbt
+- **Validates** data quality with Great Expectations
+- **Orchestrates** the entire pipeline with Apache Airflow
+- **Serves** validated data to Tableau Public dashboards via OData API
 
-## Architecture
+## Tech Stack & Architecture
 
-### Data Flow
+### Data Flow Architecture
 ```
-NOAA API → Data Processing → S3 (Raw) → Validation → S3 (Silver) → dbt (Gold) → OData API → Tableau Public
+NOAA API → Kafka → Spark Streaming (Bronze) → Spark Batch (Silver) → dbt (Gold) → Great Expectations (Validation) → Airflow (Orchestration) → OData API → Tableau Public Dashboard
 ```
 
-### Key Components
-- **Data Extraction**: NOAA weather data crawler
-- **Data Validation**: Great Expectations suite
-- **Data Storage**: S3 with date partitioning
-- **Data Transformation**: dbt models (Silver → Gold)
-- **Data Serving**: FastAPI OData server
-- **Analytics**: Tableau Public dashboards
+### Technology Stack
+
+| Component | Technology | Version | Purpose |
+|-----------|------------|---------|---------|
+| **Data Source** | NOAA Weather API | v2.0 | Weather data extraction |
+| **Message Queue** | Apache Kafka | 3.5+ | Real-time data streaming |
+| **Stream Processing** | Apache Spark Structured Streaming | 3.5.0 | Bronze layer real-time processing |
+| **Batch Processing** | Apache Spark | 3.5.0 | Silver layer data cleaning & enrichment |
+| **Data Warehouse** | DuckDB | 1.4.0 | Gold layer analytics & aggregation |
+| **Data Modeling** | dbt | 1.7+ | Gold layer transformations |
+| **Data Validation** | Great Expectations | 0.18+ | Data quality validation |
+| **Orchestration** | Apache Airflow | 3.0.2 | Pipeline orchestration & scheduling |
+| **Storage** | Amazon S3 | - | Data lake storage with partitioning |
+| **API Server** | FastAPI | 0.104+ | OData API for dashboard connectivity |
+| **Dashboard** | Tableau Public | - | Interactive data visualization |
+| **Language** | Python | 3.12 | Primary development language |
+| **Language** | Scala | 2.13 | Spark transformations |
+| **Build Tool** | sbt | 1.9+ | Scala project management |
+
+### Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "Data Sources"
+        NOAA[NOAA Weather API<br/>v2.0]
+    end
+    
+    subgraph "Streaming Layer"
+        KAFKA[Apache Kafka<br/>3.5+]
+        SPARK_STREAM[Spark Structured Streaming<br/>3.5.0]
+    end
+    
+    subgraph "Processing Layers"
+        BRONZE[Bronze Layer<br/>Raw Data Ingestion]
+        SILVER[Silver Layer<br/>Data Cleaning & Enrichment]
+        GOLD[Gold Layer<br/>Analytics & Aggregation]
+    end
+    
+    subgraph "Data Storage"
+        S3_BRONZE[S3 Bronze<br/>Raw Data]
+        S3_SILVER[S3 Silver<br/>Cleaned Data]
+        S3_GOLD[S3 Gold<br/>Analytics Data]
+    end
+    
+    subgraph "Quality & Orchestration"
+        GE[Great Expectations<br/>0.18+]
+        AIRFLOW[Apache Airflow<br/>3.0.2]
+    end
+    
+    subgraph "Serving Layer"
+        ODATA[FastAPI OData Server<br/>0.104+]
+        TABLEAU[Tableau Public<br/>Dashboard]
+    end
+    
+    subgraph "Data Warehouse"
+        DUCKDB[DuckDB<br/>1.4.0]
+    end
+    
+    NOAA --> KAFKA
+    KAFKA --> SPARK_STREAM
+    SPARK_STREAM --> BRONZE
+    BRONZE --> S3_BRONZE
+    
+    S3_BRONZE --> SILVER
+    SILVER --> S3_SILVER
+    
+    S3_SILVER --> DUCKDB
+    DUCKDB --> GOLD
+    GOLD --> S3_GOLD
+    
+    S3_GOLD --> GE
+    GE --> AIRFLOW
+    AIRFLOW --> ODATA
+    ODATA --> TABLEAU
+    
+    style NOAA fill:#e1f5fe
+    style KAFKA fill:#fff3e0
+    style SPARK_STREAM fill:#fff3e0
+    style BRONZE fill:#f3e5f5
+    style SILVER fill:#f3e5f5
+    style GOLD fill:#f3e5f5
+    style GE fill:#e8f5e8
+    style AIRFLOW fill:#e8f5e8
+    style ODATA fill:#fff8e1
+    style TABLEAU fill:#e3f2fd
+```
 
 ## Quick Start
 
 ### Prerequisites
-- Python 3.8+
-- AWS CLI configured
-- dbt installed
-- Tableau Public
+- **Python 3.12.** (Primary language)
+- **Scala 2.13.16** (Spark transformations)
+- **Java 17.0.16** (Spark runtime)
+- **sbt 1.11.4** (Spark compiler)
+- **Apache Kafka 4.0.0** (Message streaming)
+- **Apache Spark 4.0.0** (Data processing)
+- **DuckDB 1.4.0** (Data warehouse)
+- **dbt 1.7.0** (Data modeling)
+- **Apache Airflow 3.0.2** (Orchestration)
+- **AWS CLI 2.31.4** configured
+- **Tableau Public** (Dashboard)
 
 ### 1. Install Dependencies
 ```bash
+# Python dependencies
 pip install -r requirements.txt
+
+# Scala dependencies (sbt will handle)
+sbt compile
 ```
 
 ### 2. Configure Environment
@@ -45,16 +136,26 @@ cp env.example .env
 # Edit .env with your AWS credentials and configuration
 ```
 
-### 3. Run Data Pipeline
+### 3. Run Complete Pipeline
 ```bash
-# Extract weather data
-python src/crawler/noaa_crawler.py
+# Start Kafka (if not running)
+kafka-server-start.sh config/server.properties
 
-# Validate data
+# Run Airflow DAG (orchestrates entire pipeline)
+airflow dags trigger weather_data_pipeline
+
+# Or run components individually:
+# Bronze Layer (Spark Streaming)
+./run_transform.sh bronze weather-forecast noaa s3://data-eng-bucket-345/bronze/weather
+
+# Silver Layer (Spark Batch)
+./run_transform.sh silver weather-forecast noaa s3://data-eng-bucket-345/bronze/weather s3://data-eng-bucket-345/silver/weather
+
+# Gold Layer (dbt)
+dbt run -s gold.weather_metrics
+
+# Data Validation (Great Expectations)
 python great_expectations/weather_data_suite.py
-
-# Transform data with dbt
-dbt run
 
 # Serve data via OData API
 python simple_secure_s3_odata_server.py
@@ -62,30 +163,40 @@ python simple_secure_s3_odata_server.py
 
 ## Data Pipeline Components
 
-### 1. Data Extraction (`src/crawler/`)
-- NOAA weather data crawler
-- Handles API rate limiting
-- Stores raw data in S3
+### 1. Data Ingestion (`src/crawler/`)
+- **NOAA Weather API crawler** - Extracts weather data for specified locations
+- **Kafka producer** - Streams data to Kafka topics
+- **Rate limiting** - Handles API constraints and backpressure
 
-### 2. Data Validation (`great_expectations/`)
-- Great Expectations validation suite
-- Pre and post-processing validation
-- S3 and Athena integration
+### 2. Streaming Layer (`src/main/scala/`)
+- **Apache Kafka** - Message queue for real-time data streaming
+- **Spark Structured Streaming** - Bronze layer real-time processing
+- **Delta Lake** - ACID transactions and schema evolution
 
-### 3. Data Storage (`data/`)
-- S3 bucket structure with partitioning
-- Raw, Silver, and Gold layers
-- Parquet format for efficiency
+### 3. Batch Processing (`src/main/scala/batch/`)
+- **Spark Batch Jobs** - Silver layer data cleaning and enrichment
+- **Data quality scoring** - Automated validation and scoring
+- **Deduplication** - Removes duplicate records based on business keys
 
-### 4. Data Transformation (`models/`)
-- dbt models for Silver and Gold layers
-- Data quality transformations
-- Business logic implementation
+### 4. Data Warehouse (`models/`)
+- **DuckDB** - High-performance analytical database
+- **dbt models** - Gold layer transformations and aggregations
+- **Incremental processing** - Efficient handling of new data
 
-### 5. Data Serving (`simple_secure_s3_odata_server.py`)
-- FastAPI OData server
-- Tableau Public connectivity
-- Secure authentication
+### 5. Data Validation (`great_expectations/`)
+- **Great Expectations suite** - Comprehensive data quality validation
+- **S3 integration** - Validates data at rest
+- **Automated reporting** - Quality metrics and alerts
+
+### 6. Orchestration (`dags/`)
+- **Apache Airflow** - Pipeline orchestration and scheduling
+- **DAG workflows** - Coordinated execution of pipeline stages
+- **Error handling** - Retry logic and failure notifications
+
+### 7. Data Serving (`simple_secure_s3_odata_server.py`)
+- **FastAPI OData server** - RESTful API for dashboard connectivity
+- **Tableau Public integration** - Direct dashboard connectivity
+- **Security features** - Authentication and input validation
 
 ## S3 OData Server for Tableau Public
 
