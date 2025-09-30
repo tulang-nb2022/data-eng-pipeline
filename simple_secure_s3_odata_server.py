@@ -313,20 +313,17 @@ class SimpleS3ODataServer:
             """OData Service Document - required by Tableau Public."""
             files = self._get_s3_files()
             
-            # Create OData service document
+            # Create OData service document with proper structure
             service_doc = {
                 "@odata.context": "/$metadata",
-                "@odata.count": len(files),
-                "value": []
-            }
-            
-            for file_info in files:
-                entity_set = {
+                "value": [
+                    {
                     "name": "weather_data",
                     "kind": "EntitySet",
                     "url": "weather_data"
                 }
-                service_doc["value"].append(entity_set)
+                ]
+            }
             
             response = JSONResponse(content=service_doc)
             return self._add_odata_headers(response)
@@ -334,24 +331,15 @@ class SimpleS3ODataServer:
         @self.app.get("/$metadata")
         async def metadata(request: Request, username: str = Depends(self._verify_credentials)):
             """OData Metadata Document - required by Tableau Public."""
-            files = self._get_s3_files()
             
-            # Create OData metadata XML with proper namespace
+            # Create OData metadata XML with proper namespace and structure
             metadata_xml = '''<?xml version="1.0" encoding="utf-8"?>
 <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
   <edmx:DataServices>
     <Schema Namespace="S3DataService" xmlns="http://docs.oasis-open.org/odata/ns/edm">
-      <EntityContainer Name="S3DataContainer">'''
-            
-            # Add entity sets to container (single weather_data entity)
-            metadata_xml += '''
-        <EntitySet Name="weather_data" EntityType="S3DataService.WeatherData" />'''
-            
-            metadata_xml += '''
-      </EntityContainer>'''
-            
-            # Add single weather data entity type with actual columns
-            metadata_xml += '''
+      <EntityContainer Name="S3DataContainer">
+        <EntitySet Name="weather_data" EntityType="S3DataService.WeatherData" />
+      </EntityContainer>
       <EntityType Name="WeatherData">
         <Key>
           <PropertyRef Name="id" />
@@ -383,9 +371,7 @@ class SimpleS3ODataServer:
         <Property Name="year" Type="Edm.String" />
         <Property Name="month" Type="Edm.String" />
         <Property Name="day" Type="Edm.String" />
-      </EntityType>'''
-            
-            metadata_xml += '''
+      </EntityType>
     </Schema>
   </edmx:DataServices>
 </edmx:Edmx>'''
@@ -455,6 +441,25 @@ class SimpleS3ODataServer:
             """Health check endpoint."""
             response = JSONResponse(content={"status": "healthy", "service": "S3 OData Server"})
             return self._add_odata_headers(response)
+        
+        @self.app.get("/{path:path}")
+        async def catch_all(request: Request, path: str, username: str = Depends(self._verify_credentials)):
+            """Catch-all route for malformed URLs."""
+            logger.warning(f"Malformed URL requested: /{path}")
+            
+            # If it looks like a weather_data request with extra text, redirect to correct endpoint
+            if "weather_data" in path:
+                return JSONResponse(
+                    content={
+                        "error": "Invalid URL",
+                        "message": f"URL '/{path}' is malformed. Use '/weather_data' instead.",
+                        "correct_url": "/weather_data"
+                    },
+                    status_code=400
+                )
+            
+            # For other malformed URLs, return 404
+            raise HTTPException(status_code=404, detail=f"Endpoint '/{path}' not found")
     
     def _apply_odata_filter(self, df: pd.DataFrame, filter_str: str) -> pd.DataFrame:
         """Apply OData $filter query option with enhanced support."""
