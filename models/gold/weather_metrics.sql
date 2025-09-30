@@ -2,7 +2,9 @@
 -- This model creates business-ready aggregated metrics from the silver layer
 
 {{ config(
-    materialized='table',
+    materialized='incremental',
+    unique_key=['data_source','year','month','day','city'],
+    on_schema_change='sync_all_columns',
     pre_hook='INSTALL httpfs; LOAD httpfs;',
     post_hook=["
         INSTALL httpfs; LOAD httpfs;
@@ -10,11 +12,11 @@
         SET s3_use_ssl=true;
         SET s3_access_key_id='{{ env_var('aws_access_key_id') }}';
         SET s3_secret_access_key='{{ env_var('aws_secret_access_key') }}';
-        COPY (SELECT * FROM {{ this }})
+        COPY (SELECT * FROM {{ this }} WHERE gold_processing_timestamp >= (SELECT coalesce(max(gold_processing_timestamp), TIMESTAMP '1970-01-01') FROM {{ this }}))
         TO 's3://data-eng-bucket-345/gold/weather/'
         (
             FORMAT PARQUET,
-            OVERWRITE_OR_IGNORE true,
+            OVERWRITE_OR_IGNORE false,
             COMPRESSION SNAPPY,
             PARTITION_BY (year, month, day)
         )
@@ -24,6 +26,9 @@
 with silver_data as (
     select *
     from read_parquet('s3://data-eng-bucket-345/silver/weather/**/*.parquet')
+    {% if is_incremental() %}
+        where processing_timestamp > (select coalesce(max(latest_processing_timestamp), TIMESTAMP '1970-01-01') from {{ this }})
+    {% endif %}
     -- Remove strict validation - let Great Expectations handle data quality
     -- where is_valid = true
 ),

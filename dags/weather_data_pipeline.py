@@ -109,9 +109,8 @@ def run_gold_layer(**context):
     cmd = [
         "dbt",
         "run",
-        "--select",
-        "weather_metrics",
-        "--full-refresh"
+        "-s",
+        "gold.weather_metrics"
     ]
     
     logger.info(f"Running gold command: {' '.join(cmd)}")
