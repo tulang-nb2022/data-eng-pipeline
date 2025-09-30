@@ -437,11 +437,14 @@ class SimpleS3ODataServer:
             # Keep all actual weather data columns (no filtering for security)
             # The data is already sanitized by being in the specific weather path
             
-            # Convert to OData format
+            # Convert to OData format with NaN handling
+            # Replace NaN values with None for JSON serialization
+            df_clean = df.replace({float('nan'): None, pd.NA: None})
+            
             odata_response = {
                 "@odata.context": "/$metadata",
                 "@odata.count": original_count,
-                "value": df.to_dict('records')
+                "value": df_clean.to_dict('records')
             }
             
             response = JSONResponse(content=odata_response)
