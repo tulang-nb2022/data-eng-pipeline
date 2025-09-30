@@ -423,9 +423,32 @@ class SimpleS3ODataServer:
             # Keep all actual weather data columns (no filtering for security)
             # The data is already sanitized by being in the specific weather path
             
-            # Convert to OData format with NaN handling
-            # Replace NaN values with None for JSON serialization
-            df_clean = df.replace({float('nan'): None, pd.NA: None})
+            # Convert to OData format with comprehensive JSON serialization handling
+            # Replace NaN values and convert timestamps to ISO strings
+            df_clean = df.copy()
+            
+            # Handle NaN values
+            df_clean = df_clean.replace({float('nan'): None, pd.NA: None})
+            
+            # Convert timestamp columns to ISO format strings for JSON serialization
+            timestamp_columns = [
+                'latest_processing_timestamp', 
+                'earliest_processing_timestamp', 
+                'gold_processing_timestamp'
+            ]
+            
+            for col in timestamp_columns:
+                if col in df_clean.columns:
+                    # Convert timestamps to ISO format strings, handling NaT (Not a Time)
+                    df_clean[col] = df_clean[col].apply(
+                        lambda x: x.isoformat() if pd.notna(x) and hasattr(x, 'isoformat') else None
+                    )
+            
+            # Convert int64 to int32 for better JSON compatibility
+            int64_columns = ['record_count']
+            for col in int64_columns:
+                if col in df_clean.columns:
+                    df_clean[col] = df_clean[col].astype('Int64')  # Nullable integer
             
             odata_response = {
                 "@odata.context": "/$metadata",
