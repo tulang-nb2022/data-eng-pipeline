@@ -12,6 +12,10 @@ This project implements a complete **real-time weather data pipeline** that:
 - **Orchestrates** the entire pipeline with Apache Airflow
 - **Serves** validated data to Tableau Public dashboards via OData API
 
+**Tableau Public https://public.tableau.com/app/profile/l.reese/viz/WeatherdataSept2025/Story1#1**
+
+<img width="2080" height="1132" alt="image" src="https://github.com/user-attachments/assets/cc1d4de5-065b-465a-b249-d4c09bb11547" />
+
 ## Tech Stack & Architecture
 
 ### Data Flow Architecture
